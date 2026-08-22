@@ -1,0 +1,553 @@
+/**
+ * 三国卡牌对战 · 主游戏引擎
+ * 集成 GameState + TurnMachine + 战斗状态 + 卡牌效果实现 + 气量闭环 + 胜负判定
+ *
+ * 设计原则（按文档）：
+ * 1. 业务逻辑与 UI 渲染彻底分开 — UI 只读取 state 做显示
+ * 2. 严格按文档时序做状态机
+ * 3. 兵法每条状态独立倒计时（不只记总层数）
+ */
+import {
+  CardCategory,
+  CardInstance,
+  GameOverReason,
+  PlayerId,
+  PlayerState,
+  TurnPhase,
+  UltimateType,
+  FormationType,
+  StrategyType,
+  BattleState,
+} from './types';
+import { GameState } from './GameState';
+import { TurnMachine, ActionSubPhase } from './TurnMachine';
+import {
+  HP_MAX,
+  addStrategy,
+  calcGeneralCost,
+  calcGeneralDamage,
+  tickStrategies,
+  totalStrategyLayers,
+  getStateBonus,
+  getBattleState,
+} from './BattleState';
+import { EffectResult } from './CardEffect';
+
+/** 待结算的攻击信息 */
+interface PendingAttack {
+  /** 武将攻击造成的最终伤害（已含兵法/状态加成） */
+  damage: number;
+  /** 攻击来源：武将 / 绝杀 */
+  source: 'general' | 'ultimate';
+  /** 是否为倚天剑击杀 */
+  isYiTianJian: boolean;
+  /** 攻击者 */
+  attacker: PlayerId;
+  /** 防御者 */
+  defender: PlayerId;
+  /** 来源卡牌 UID */
+  sourceCardUid: string;
+  /** 是否为八卦阵反弹（反弹受击：A 可出防具但不可再出八卦阵） */
+  isReflect: boolean;
+}
+
+export class GameEngine {
+  state: GameState;
+  turn: TurnMachine = new TurnMachine();
+
+  /** 当前待结算的攻击（武将攻击后进入受击响应时设置） */
+  pendingAttack: PendingAttack | null = null;
+  /** 当前防御响应中累积的防具总防御值 */
+  defensePool: number = 0;
+  /** 当前防御响应中是否已打出八卦阵 */
+  baguaTriggered: boolean = false;
+  /** 当前防御响应中已使用的防具卡（用于弃牌） */
+  usedArmorCards: CardInstance[] = [];
+  /** 当前防御响应中已使用的八卦阵卡（用于弃牌） */
+  usedBaguaCards: CardInstance[] = [];
+  /** 紧急救血等待中（普通攻击打至 0 血，可补血续命） */
+  emergencyHealPending: PlayerId | null = null;
+  /** 历史日志（用于 UI 显示与调试） */
+  logs: string[] = [];
+
+  constructor() {
+    this.state = new GameState();
+  }
+
+  /** 日志 */
+  log(msg: string): void {
+    this.logs.push(`[回合${this.state.roundCount}] ${msg}`);
+    if (this.logs.length > 200) this.logs.shift();
+  }
+
+  /** 初始化对局 */
+  initGame(): void {
+    this.state.initDeck();
+    this.state.dealInitialHands();
+    this.state.setFirstPlayerForRound();
+    this.turn.setFirstPlayer(this.state.firstPlayer);
+    this.turn.phase = TurnPhase.Action;
+    this.turn.subPhase = ActionSubPhase.Idle;
+    this.log(`对局开始 · 玩家 ${this.state.firstPlayer + 1} 先手`);
+  }
+
+  /** 获取当前行动玩家 */
+  get activePlayer(): PlayerState { return this.state.players[this.turn.activePlayer]; }
+  /** 简写：获取玩家 */
+  getPlayer(id: PlayerId): PlayerState { return this.state.players[id]; }
+  /** 获取对手 */
+  getOpponent(id: PlayerId): PlayerState { return this.state.players[(1 - id) as PlayerId]; }
+
+  /** 校验是否轮到该玩家行动 */
+  canAct(actor: PlayerId): boolean {
+    if (this.state.gameOver) return false;
+    if (this.turn.isAwaitingDefense()) {
+      // 防御响应阶段：防御者可打防具/八卦阵；攻击者不可行动
+      return actor === this.pendingAttack?.defender;
+    }
+    if (this.emergencyHealPending !== null) {
+      // 紧急救血阶段：被击杀方可打补血牌
+      return actor === this.emergencyHealPending;
+    }
+    // 行动阶段：仅先手方可行动
+    return this.turn.isInActionPhase() && actor === this.turn.activePlayer;
+  }
+
+  /** 从手牌中移除一张卡并放入弃牌堆 */
+  private consumeCard(actor: PlayerId, card: CardInstance): void {
+    const p = this.state.players[actor];
+    const idx = p.hand.findIndex(c => c.uid === card.uid);
+    if (idx >= 0) p.hand.splice(idx, 1);
+    this.state.discard.push(card);
+  }
+
+  // ============ 卡牌效果实现 ============
+
+  /** 武将攻击：消耗气量 → 计算伤害 → 进入受击响应 */
+  playGeneralAttack(card: CardInstance, actor: PlayerId): EffectResult {
+    if (!this.canAct(actor)) return { ok: false, message: '非己方行动阶段' };
+    if (card.def.category !== CardCategory.General) return { ok: false, message: '非武将牌' };
+    if (this.turn.isAwaitingDefense()) return { ok: false, message: '当前正在等待防御响应' };
+
+    const attacker = this.state.players[actor];
+    const defender = this.state.players[(1 - actor) as PlayerId];
+    const cost = calcGeneralCost(card.def, attacker);
+    if (attacker.qi < cost) {
+      return { ok: false, message: `气量不足：需要 ${cost}，当前 ${attacker.qi}` };
+    }
+    attacker.qi -= cost;
+    const damage = calcGeneralDamage(card.def, attacker);
+    const stateBonus = getStateBonus(attacker);
+    const stratLayers = totalStrategyLayers(attacker);
+    this.log(
+      `玩家${actor + 1} 打出【${card.def.name}】耗气 ${cost} → 伤害 ${damage} ` +
+      `(基础${card.def.value}+兵法${stratLayers}+状态${stateBonus})`,
+    );
+    this.consumeCard(actor, card);
+
+    // 设置待结算攻击，进入防御响应
+    this.pendingAttack = {
+      damage,
+      source: 'general',
+      isYiTianJian: false,
+      attacker: actor,
+      defender: (1 - actor) as PlayerId,
+      sourceCardUid: card.uid,
+      isReflect: false,
+    };
+    this.defensePool = 0;
+    this.baguaTriggered = false;
+    this.usedArmorCards = [];
+    this.usedBaguaCards = [];
+    this.turn.enterDefenseResponse();
+    return {
+      ok: true,
+      message: `打出 ${card.def.name} · 造成 ${damage} 点伤害 · 等待防御响应`,
+      triggeredDamage: true,
+    };
+  }
+
+  /** 防具：受击阶段打出，加入临时防御池 */
+  playArmor(card: CardInstance, actor: PlayerId): EffectResult {
+    if (!this.turn.isAwaitingDefense()) return { ok: false, message: '非受击阶段' };
+    if (card.def.category !== CardCategory.Armor) return { ok: false, message: '非防具牌' };
+    if (this.baguaTriggered) return { ok: false, message: '已打出八卦阵，不可再用防具' };
+    if (this.pendingAttack?.defender !== actor) return { ok: false, message: '非防御方' };
+
+    this.defensePool += card.def.value;
+    this.usedArmorCards.push(card);
+    this.consumeCard(actor, card);
+    this.log(`玩家${actor + 1} 打出【${card.def.name}】防 ${card.def.value} · 累计防御 ${this.defensePool}`);
+    return { ok: true, message: `防具累计防御 ${this.defensePool}` };
+  }
+
+  /** 功能-补气：+气量 */
+  playFunctionQi(card: CardInstance, actor: PlayerId): EffectResult {
+    if (!this.canAct(actor)) return { ok: false, message: '非己方行动阶段' };
+    if (card.def.category !== CardCategory.FunctionQi) return { ok: false, message: '非补气牌' };
+    const p = this.state.players[actor];
+    p.qi += card.def.value;
+    this.log(`玩家${actor + 1} 打出【${card.def.name}】+${card.def.value} 气 → 当前 ${p.qi}`);
+    this.consumeCard(actor, card);
+    return { ok: true, message: `+${card.def.value} 气`, triggeredQi: true };
+  }
+
+  /** 功能-补血：未满血回血 / 满血转气；绝杀击杀时不可用（由 emergencyHealPending 状态控制） */
+  playFunctionHp(card: CardInstance, actor: PlayerId): EffectResult {
+    if (card.def.category !== CardCategory.FunctionHp) return { ok: false, message: '非补血牌' };
+    const p = this.state.players[actor];
+
+    // 紧急救血阶段：仅在被击杀且非绝杀击杀时可用
+    if (this.emergencyHealPending === actor) {
+      // 允许补血续命
+    } else if (!this.canAct(actor)) {
+      return { ok: false, message: '非己方行动阶段' };
+    }
+
+    if (p.hp < HP_MAX) {
+      const before = p.hp;
+      p.hp = Math.min(HP_MAX, p.hp + card.def.value);
+      const healed = p.hp - before;
+      this.log(`玩家${actor + 1} 打出【${card.def.name}】回 ${healed} 血 → 当前 ${p.hp}/${HP_MAX}`);
+      this.consumeCard(actor, card);
+      // 若是紧急救血且救活，清除标记
+      if (this.emergencyHealPending === actor && p.hp > 0) {
+        this.emergencyHealPending = null;
+        this.log(`玩家${actor + 1} 紧急救血成功，续命！`);
+      }
+      return { ok: true, message: `回 ${healed} 血`, triggeredHeal: true };
+    } else {
+      // 满血时 1:1 转化为气量
+      p.qi += card.def.value;
+      this.log(`玩家${actor + 1} 打出【${card.def.name}】满血转气 +${card.def.value} → 气 ${p.qi}`);
+      this.consumeCard(actor, card);
+      return { ok: true, message: `满血转气 +${card.def.value}`, triggeredQi: true };
+    }
+  }
+
+  /** 兵法：获得兵法层数（独立倒计时） */
+  playStrategy(card: CardInstance, actor: PlayerId): EffectResult {
+    if (!this.canAct(actor)) return { ok: false, message: '非己方行动阶段' };
+    if (card.def.category !== CardCategory.Strategy) return { ok: false, message: '非兵法牌' };
+    const p = this.state.players[actor];
+    const layers = card.def.value;
+    addStrategy(p, card.uid, card.def.subtype as StrategyType, layers);
+    const total = totalStrategyLayers(p);
+    this.log(
+      `玩家${actor + 1} 打出【${card.def.name}】+${layers} 层兵法 · 持续 3 回合 · 总层数 ${total}`,
+    );
+    this.consumeCard(actor, card);
+    return { ok: true, message: `+${layers} 层兵法 · 总层数 ${total}` };
+  }
+
+  /** 绝杀神兵：固定真实伤害，无视防具，击杀不可急救 */
+  playUltimate(card: CardInstance, actor: PlayerId): EffectResult {
+    if (!this.canAct(actor)) return { ok: false, message: '非己方行动阶段' };
+    if (card.def.category !== CardCategory.Ultimate) return { ok: false, message: '非绝杀牌' };
+    if (this.turn.isAwaitingDefense()) return { ok: false, message: '当前正在等待防御响应' };
+
+    const target = (1 - actor) as PlayerId;
+    const damage = card.def.value;
+    const isYiTianJian = card.def.subtype === UltimateType.YiTianJian;
+    this.log(
+      `玩家${actor + 1} 打出【${card.def.name}】绝杀 · ${damage} 点真实伤害 · 无视防具`,
+    );
+    this.consumeCard(actor, card);
+
+    // 直接结算（不进入防御响应，八卦阵无法反弹绝杀）
+    this.applyDamage(target, damage, {
+      source: 'ultimate',
+      isYiTianJian,
+      ignoreArmor: true,
+      ignoreBagua: true,
+    });
+
+    if (this.state.gameOver) {
+      return { ok: true, message: `绝杀击杀 · 游戏结束`, triggeredUltimate: true, triggeredDamage: true };
+    }
+    return {
+      ok: true,
+      message: `绝杀 · ${damage} 真实伤害`,
+      triggeredUltimate: true,
+      triggeredDamage: true,
+    };
+  }
+
+  /** 阵法：八卦阵（受击反弹）/ 追风阵（篡改先手） */
+  playFormation(card: CardInstance, actor: PlayerId): EffectResult {
+    if (card.def.category !== CardCategory.Formation) return { ok: false, message: '非阵法牌' };
+    const type = card.def.subtype as FormationType;
+
+    if (type === FormationType.BaGua) {
+      // 八卦阵：受击阶段打出
+      if (!this.turn.isAwaitingDefense()) return { ok: false, message: '八卦阵需在受击时打出' };
+      if (this.pendingAttack?.defender !== actor) return { ok: false, message: '非防御方' };
+      if (this.baguaTriggered) return { ok: false, message: '本回合已打出八卦阵' };
+      // 无法反弹绝杀/倚天剑
+      if (this.pendingAttack?.source === 'ultimate') {
+        return { ok: false, message: '八卦阵无法反弹绝杀' };
+      }
+      // 反弹受击不可再出八卦阵（八卦阵不可嵌套反弹）
+      if (this.pendingAttack?.isReflect) {
+        return { ok: false, message: '反弹伤害不可再出八卦阵' };
+      }
+      this.baguaTriggered = true;
+      this.usedBaguaCards.push(card);
+      this.consumeCard(actor, card);
+      this.log(`玩家${actor + 1} 打出【八卦阵】· 将全额反弹武将伤害`);
+      return { ok: true, message: '八卦阵生效 · 待结算时反弹', triggeredReflect: true };
+    }
+
+    if (type === FormationType.ZhuiFeng) {
+      // 追风阵：自身回合打出
+      if (!this.canAct(actor)) return { ok: false, message: '非己方行动阶段' };
+      if (this.turn.isAwaitingDefense()) return { ok: false, message: '当前正在等待防御响应' };
+      this.state.zhuiFengActive = true;
+      this.log(`玩家${actor + 1} 打出【追风阵】· 下回合仍为己方先手`);
+      this.consumeCard(actor, card);
+      return { ok: true, message: '追风阵生效 · 下回合仍为先手' };
+    }
+
+    return { ok: false, message: '未知阵法' };
+  }
+
+  // ============ 防御响应 ============
+
+  /** 防御方主动结束防御响应（不再出防具/八卦阵），进入伤害结算 */
+  defenderPass(): EffectResult {
+    if (!this.turn.isAwaitingDefense()) return { ok: false, message: '非受击阶段' };
+    return this.resolvePendingAttack();
+  }
+
+  /** 结算待处理的攻击 */
+  private resolvePendingAttack(): EffectResult {
+    if (!this.pendingAttack) return { ok: false, message: '无待结算攻击' };
+    const atk = this.pendingAttack;
+    this.pendingAttack = null;
+    this.turn.exitDefenseResponse();
+
+    if (this.baguaTriggered) {
+      // 八卦阵反弹：将原攻击者转为受击方，A 可出防具抵消（但不可再出八卦阵）
+      this.log(`八卦阵反弹 ${atk.damage} 点伤害至玩家${atk.attacker + 1} · A 可出防具抵消`);
+      this.usedBaguaCards = [];
+      this.usedArmorCards = [];
+      this.baguaTriggered = false;
+      this.defensePool = 0;
+      // 构造反弹 pendingAttack：攻击者为 B（原防御方），防御者为 A（原攻击方），标记为反弹
+      // 反弹伤害仍视为 general 来源（武将伤害），便于急救规则
+      this.pendingAttack = {
+        damage: atk.damage,
+        source: 'general',
+        isYiTianJian: false,
+        attacker: atk.defender,
+        defender: atk.attacker,
+        sourceCardUid: atk.sourceCardUid,
+        isReflect: true,
+      };
+      // 切换 activePlayer 为 A（受击方），A 进入防御响应阶段
+      this.turn.setActivePlayer(atk.attacker);
+      this.turn.enterDefenseResponse();
+      return { ok: true, message: `八卦阵反弹 ${atk.damage} 伤害 · 玩家${atk.attacker + 1} 可出防具`, triggeredReflect: true };
+    }
+
+    // 普通结算：伤害 - 防御池
+    const finalDamage = Math.max(0, atk.damage - this.defensePool);
+    this.log(
+      `伤害结算：${atk.damage} - 防具 ${this.defensePool} = ${finalDamage} → 玩家${atk.defender + 1}`,
+    );
+    this.usedArmorCards = [];
+    this.defensePool = 0;
+    if (finalDamage > 0) {
+      this.applyDamage(atk.defender, finalDamage, {
+        source: atk.source,
+        isYiTianJian: atk.isYiTianJian,
+        ignoreArmor: false,
+        ignoreBagua: false,
+      });
+    }
+    if (this.state.gameOver) return { ok: true, message: '击杀 · 游戏结束', triggeredDamage: true };
+    if (this.emergencyHealPending !== null) {
+      return { ok: true, message: '玩家被打至 0 血 · 可紧急救血', triggeredDamage: true };
+    }
+    // 攻击权切换：
+    // - 反弹结算：攻击权交给 A（原攻击方，即 atk.defender），A 可继续行动/继续攻击
+    // - 普通结算：防御方有武将牌则轮到防御方，否则攻击方继续
+    if (atk.isReflect) {
+      this.turn.setActivePlayer(atk.defender);
+      this.log(`反弹结算完成 · 攻击权交回玩家${atk.defender + 1}`);
+    } else {
+      this.switchActiveAfterAttackResolve(atk.attacker, atk.defender);
+    }
+    return { ok: true, message: `造成 ${finalDamage} 伤害`, triggeredDamage: true };
+  }
+
+  /**
+   * 攻击结算后的攻击权切换：
+   * 规则修正 — 一方攻击结束后轮到另一方攻击，除非另一方没有武将攻击牌
+   * @param attacker 本次攻击的攻击方
+   * @param defender 本次攻击的防御方
+   */
+  private switchActiveAfterAttackResolve(attacker: PlayerId, defender: PlayerId): void {
+    const defenderHasGeneral = this.hasGeneralInHand(defender);
+    if (defenderHasGeneral) {
+      // 防御方有武将牌：轮到防御方攻击
+      this.turn.setActivePlayer(defender);
+      this.log(`攻击权切换 · 轮到玩家${defender + 1} 攻击`);
+    } else {
+      // 防御方没有武将牌：攻击方继续行动（连击）
+      this.turn.setActivePlayer(attacker);
+      this.log(`玩家${defender + 1} 无武将牌 · 玩家${attacker + 1} 可继续连击`);
+    }
+  }
+
+  /** 判断玩家手牌中是否还有武将攻击牌 */
+  hasGeneralInHand(playerId: PlayerId): boolean {
+    return this.state.players[playerId].hand.some(c => c.def.category === CardCategory.General);
+  }
+
+  /**
+   * 伤害结算核心
+   * @param targetId 受击方
+   * @param amount 实际扣血量（已扣除防具）
+   * @param opts 来源信息
+   */
+  private applyDamage(
+    targetId: PlayerId,
+    amount: number,
+    opts: { source: 'general' | 'ultimate'; isYiTianJian: boolean; ignoreArmor: boolean; ignoreBagua: boolean },
+  ): void {
+    if (amount <= 0) return;
+    const target = this.state.players[targetId];
+    const before = target.hp;
+    target.hp = Math.max(0, target.hp - amount);
+    const actualLoss = before - target.hp;
+    this.log(`玩家${targetId + 1} 扣血 ${actualLoss} → HP ${target.hp}/${HP_MAX}`);
+
+    // 掉血补气：每一次有效扣血事件 +1 气（无伤格挡/反弹不补气）
+    if (actualLoss > 0) {
+      target.qi += 1;
+      target.hpLossQiThisTurn += 1;
+      this.log(`玩家${targetId + 1} 掉血补气 +1 → 气 ${target.qi}`);
+    }
+
+    if (target.hp <= 0) {
+      if (opts.source === 'ultimate') {
+        // 绝杀击杀：禁止所有补血，直接判负
+        this.log(`玩家${targetId + 1} 被绝杀击杀 · 不可急救`);
+        this.state.checkGameOver();
+      } else {
+        // 普通攻击打至 0 血：可立刻补血续命
+        this.log(`玩家${targetId + 1} 被打至 0 血 · 进入紧急救血阶段`);
+        this.emergencyHealPending = targetId;
+      }
+    }
+  }
+
+  /** 紧急救血阶段：被击杀方放弃补血，接受败北 */
+  emergencyHealGiveUp(): EffectResult {
+    if (this.emergencyHealPending === null) return { ok: false, message: '非紧急救血阶段' };
+    const id = this.emergencyHealPending;
+    this.emergencyHealPending = null;
+    this.log(`玩家${id + 1} 放弃补血 · 接受败北`);
+    this.state.checkGameOver();
+    return { ok: true, message: '游戏结束' };
+  }
+
+  // ============ 玩家本局专属固有能力按钮 ============
+
+  /** 普通补气按钮：+2 气，整局限 1 次 */
+  useNormalQiButton(actor: PlayerId): EffectResult {
+    if (!this.canAct(actor)) return { ok: false, message: '非己方行动阶段' };
+    const p = this.state.players[actor];
+    if (p.usedNormalQi) return { ok: false, message: '本局已使用普通补气' };
+    p.usedNormalQi = true;
+    p.qi += 2;
+    this.log(`玩家${actor + 1} 使用普通补气按钮 +2 气 → ${p.qi}`);
+    return { ok: true, message: '+2 气', triggeredQi: true };
+  }
+
+  /** 大补气按钮：+3 气，整局限 1 次 */
+  useBigQiButton(actor: PlayerId): EffectResult {
+    if (!this.canAct(actor)) return { ok: false, message: '非己方行动阶段' };
+    const p = this.state.players[actor];
+    if (p.usedBigQi) return { ok: false, message: '本局已使用大补气' };
+    p.usedBigQi = true;
+    p.qi += 3;
+    this.log(`玩家${actor + 1} 使用大补气按钮 +3 气 → ${p.qi}`);
+    return { ok: true, message: '+3 气', triggeredQi: true };
+  }
+
+  /** 手动爆气：消耗 6 气，获得 1 层兵法增幅（武将攻击 +1），持续 3 回合 */
+  useManualBurst(actor: PlayerId): EffectResult {
+    if (!this.canAct(actor)) return { ok: false, message: '非己方行动阶段' };
+    const p = this.state.players[actor];
+    const MANUAL_BURST_COST = 6;
+    if (p.qi < MANUAL_BURST_COST) return { ok: false, message: `气量不足（需 ${MANUAL_BURST_COST} 气，当前 ${p.qi}）` };
+    p.qi -= MANUAL_BURST_COST;
+    addStrategy(p, `manual_burst_${this.state.roundCount}_${actor}`, StrategyType.MengDe, 1);
+    const total = totalStrategyLayers(p);
+    this.log(
+      `玩家${actor + 1} 手动爆气 · 消耗 ${MANUAL_BURST_COST} 气 → 兵法 +1 层 · 总层数 ${total} · 剩余气 ${p.qi}`,
+    );
+    return { ok: true, message: `消耗 6 气 · 兵法 +1 层（总 ${total}）` };
+  }
+
+  // ============ 回合终局流程 ============
+
+  /** 先手玩家主动结束行动阶段 */
+  endActionPhase(): EffectResult {
+    if (this.turn.isAwaitingDefense()) return { ok: false, message: '请先完成防御响应' };
+    if (this.emergencyHealPending !== null) return { ok: false, message: '等待紧急救血' };
+    if (!this.turn.isInActionPhase()) return { ok: false, message: '非行动阶段' };
+    this.log(`玩家${this.turn.activePlayer + 1} 结束行动`);
+    this.endTurn();
+    return { ok: true, message: '回合结束' };
+  }
+
+  /** 完整回合结束流程：终局结算 → 补牌 → 互换先手 → 下一回合 */
+  endTurn(): void {
+    // 1. 回合终局结算
+    this.turn.phase = TurnPhase.Settle;
+    for (const p of this.state.players) {
+      // 全局通用回气：双方各 +1
+      p.qi += 1;
+      // 兵法倒计时 -1
+      tickStrategies(p);
+    }
+    this.log(`回合结算 · 双方各 +1 气 · 兵法倒计时 -1`);
+    if (this.state.checkGameOver()) return;
+
+    // 2. 补牌阶段
+    this.turn.phase = TurnPhase.Draw;
+    for (let i = 0; i < 2; i++) {
+      const pid = i as PlayerId;
+      const drawn = this.state.drawForTurn(pid);
+      this.log(`玩家${pid + 1} 补牌 ${drawn} 张 · 手牌 ${this.state.players[pid].hand.length}`);
+    }
+    if (this.state.checkGameOver()) return;
+
+    // 3. 互换先手
+    this.turn.phase = TurnPhase.SwitchFirst;
+    this.state.roundCount += 1;
+    this.state.setFirstPlayerForRound();
+    this.turn.setFirstPlayer(this.state.firstPlayer);
+    this.state.resetTurnCounters();
+    this.log(`回合 ${this.state.roundCount} · 玩家 ${this.state.firstPlayer + 1} 先手`);
+
+    // 4. 进入下一回合行动阶段
+    this.turn.resetToAction();
+  }
+
+  /** 获取当前战斗状态描述（UI 用） */
+  getBattleStateLabel(player: PlayerId): string {
+    const p = this.state.players[player];
+    const state = getBattleState(p);
+    switch (state) {
+      case BattleState.Normal: return '正常';
+      case BattleState.LowHp: return '缺血·攻+1';
+      case BattleState.Critical: return '残血·攻+1·耗气-1';
+      case BattleState.CriticalBurst: return '残爆·攻+2·耗气-1';
+    }
+    return '正常';
+  }
+}

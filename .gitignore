@@ -1,0 +1,16 @@
+# 依赖
+node_modules/
+
+# 构建产物（Web 测试版打包输出）
+web-test/bundle.js
+
+# 日志与临时文件
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
