@@ -351,6 +351,13 @@ io.on('connection', (socket: Socket) => {
       broadcastEvent(io, 'eventGameStart', {
         firstPlayerPid: room.engine.state.firstPlayer,
       });
+    } else if (room.started) {
+      // 重连场景：对局进行中，主动给重连的 socket 推送 eventGameStart
+      // 避免客户端 state.started 没同步导致卡在大厅
+      io.to(socket.id).emit('eventGameStart', {
+        firstPlayerPid: room.engine.state.firstPlayer,
+      });
+      console.log(`[Game] ${mySlot} 重连 · 已补发 eventGameStart`);
     }
     cb(true, {
       slot: mySlot,
@@ -564,7 +571,14 @@ io.on('connection', (socket: Socket) => {
     if (affected) {
       console.log(`[IO] ${affected} 槽已清空`);
       broadcastEvent(io, 'eventPlayerLeave', { slot: affected });
-      // 玩家离线，对局暂停（不重置 engine，保留状态；等重连）
+      // 如果所有玩家都离开了，重置房间状态
+      // 否则下次加入时 started=true 但不 emit eventGameStart，导致前端卡住
+      if (!room.players.p1.socketId && !room.players.p2.socketId) {
+        room.started = false;
+        room.engine = new GameEngine();
+        room.engine.initGame();
+        console.log('[IO] 所有玩家离线 · 房间已重置');
+      }
       broadcastRoomState(io);
     }
   });
