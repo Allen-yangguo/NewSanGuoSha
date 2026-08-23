@@ -6,8 +6,10 @@
     "test:deck": "ts-node test/verify-deck.ts",
     "test:engine": "ts-node test/verify-engine.ts",
     "build:web": "node scripts/build-web.js",
-    "build": "cd client && npm install && npm run build",
+    "build:server": "tsc",
+    "build": "npm run build:server && cd client && npm install && npm run build",
     "typecheck": "tsc --noEmit",
+    "start": "node dist/server/server.js",
     "start:server": "ts-node server/server.ts",
     "dev:server": "ts-node server/server.ts"
   },

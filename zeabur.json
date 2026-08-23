@@ -1,7 +1,8 @@
 {
   "build_command": "npm install && npm run build",
-  "start_command": "npm run start:server",
+  "start_command": "npm run start",
   "env": {
-    "PORT": "10000"
+    "PORT": "10000",
+    "NODE_ENV": "production"
   }
 }
