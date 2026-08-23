@@ -9,7 +9,7 @@ import type { ClientEvents, ServerEvents } from '../types/protocol';
 let _socket: (Socket<ServerEvents, ClientEvents> & { _inited?: boolean }) | null = null;
 
 export function getSocket(): Socket<ServerEvents, ClientEvents> {
-  if (_socket && _socket.connected) return _socket;
+  if (_socket) return _socket;
   // Vite 开发模式端口 5173，服务端端口 3000（代理通过 /socket.io 路径）
   // 生产构建：访问 origin 同端口即可（Node 服务端托管 dist + Socket.IO 同一 3000）
   const url = window.location.origin;

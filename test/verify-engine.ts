@@ -29,45 +29,60 @@ function main(): void {
   assert(engine.turn.activePlayer === engine.state.firstPlayer, '行动玩家为先手');
 
   console.log('\n=== 普通补气按钮测试 ===');
-  const fp = engine.state.firstPlayer;
-  const before = engine.state.players[fp].qi;
-  const r1 = engine.useNormalQiButton(fp);
-  assert(r1.ok, '普通补气按钮可用');
-  assert(engine.state.players[fp].qi === before + 2, `+2 气 实际 ${engine.state.players[fp].qi}`);
-  const r2 = engine.useNormalQiButton(fp);
+  // 使用独立 engine，避免回合推进污染后续测试
+  const engineBtn = new GameEngine();
+  engineBtn.initGame();
+  const fp = engineBtn.state.firstPlayer;
+  // 辅助：推进 roundCount 到目标值（直接修改 state，避免受 endActionPhase 副作用影响）
+  function advanceToRound(engine: GameEngine, target: number): void {
+    engine.state.roundCount = target;
+  }
+  // 前置：第 1 回合（roundCount=0）应被锁
+  const r0 = engineBtn.useNormalQiButton(fp);
+  assert(!r0.ok, '第 1 回合普通补气未激活');
+  // 推进到第 4 回合（roundCount=3）
+  advanceToRound(engineBtn, 3);
+  const before = engineBtn.state.players[fp].qi;
+  const r1 = engineBtn.useNormalQiButton(fp);
+  assert(r1.ok, '第 4 回合普通补气按钮可用');
+  assert(engineBtn.state.players[fp].qi === before + 2, `+2 气 实际 ${engineBtn.state.players[fp].qi}`);
+  const r2 = engineBtn.useNormalQiButton(fp);
   assert(!r2.ok, '普通补气按钮整局限 1 次');
 
   console.log('\n=== 大补气按钮测试 ===');
-  const before2 = engine.state.players[fp].qi;
-  const r3 = engine.useBigQiButton(fp);
-  assert(r3.ok, '大补气按钮可用');
-  assert(engine.state.players[fp].qi === before2 + 3, `+3 气 实际 ${engine.state.players[fp].qi}`);
-  const r4 = engine.useBigQiButton(fp);
+  // 前置：推进到第 7 回合（roundCount=6）
+  advanceToRound(engineBtn, 6);
+  const before2 = engineBtn.state.players[fp].qi;
+  const r3 = engineBtn.useBigQiButton(fp);
+  assert(r3.ok, '第 7 回合大补气按钮可用');
+  assert(engineBtn.state.players[fp].qi === before2 + 3, `+3 气 实际 ${engineBtn.state.players[fp].qi}`);
+  const r4 = engineBtn.useBigQiButton(fp);
   assert(!r4.ok, '大补气按钮整局限 1 次');
 
   console.log('\n=== 补气牌测试 ===');
-  const fpHand = engine.state.players[fp].hand;
+  const fpMain = engine.state.firstPlayer;
+  const fpHand = engine.state.players[fpMain].hand;
   const qiCard = fpHand.find(c => c.def.category === CardCategory.FunctionQi);
   if (qiCard) {
-    const beforeQi = engine.state.players[fp].qi;
-    const r = applyCardEffect(engine, qiCard, fp);
+    const beforeQi = engine.state.players[fpMain].qi;
+    const r = applyCardEffect(engine, qiCard, fpMain);
     assert(r.ok, `打出补气牌 ${qiCard.def.name}`);
-    assert(engine.state.players[fp].qi === beforeQi + qiCard.def.value, `+${qiCard.def.value} 气`);
+    assert(engine.state.players[fpMain].qi === beforeQi + qiCard.def.value, `+${qiCard.def.value} 气`);
   } else {
     console.log('  ⚠ 本局未抽到补气牌，跳过');
   }
 
   console.log('\n=== 武将攻击 + 防御响应测试 ===');
   // 找一张武将牌
-  const generalCard = engine.state.players[fp].hand.find(c => c.def.category === CardCategory.General);
+  const generalCard = engine.state.players[fpMain].hand.find(c => c.def.category === CardCategory.General);
   if (generalCard) {
     const cost = generalCard.def.cost; // 基础耗气
     // 确保气量足够
-    while (engine.state.players[fp].qi < cost + 5) {
-      engine.state.players[fp].qi += 5;
+    while (engine.state.players[fpMain].qi < cost + 5) {
+      engine.state.players[fpMain].qi += 5;
     }
-    const atkBefore = engine.state.players[1 - fp].hp;
-    const r = applyCardEffect(engine, generalCard, fp);
+    const atkBefore = engine.state.players[1 - fpMain].hp;
+    const r = applyCardEffect(engine, generalCard, fpMain);
     assert(r.ok, `打出武将 ${generalCard.def.name}（攻${generalCard.def.value} 耗气${cost}）`);
     assert(engine.turn.isAwaitingDefense(), '进入防御响应阶段');
     // 防御方放弃防御
@@ -75,13 +90,13 @@ function main(): void {
     assert(defR.ok, '防御方放弃防御');
     const expectedDmg = generalCard.def.value; // 正常状态 +0
     assert(
-      engine.state.players[1 - fp].hp === atkBefore - expectedDmg,
-      `防御方扣血 ${expectedDmg} 实际扣 ${atkBefore - engine.state.players[1 - fp].hp}`,
+      engine.state.players[1 - fpMain].hp === atkBefore - expectedDmg,
+      `防御方扣血 ${expectedDmg} 实际扣 ${atkBefore - engine.state.players[1 - fpMain].hp}`,
     );
     // 掉血补气
     assert(
-      engine.state.players[1 - fp].qi === 6 + 1, // 初始6 + 掉血1 (回合结算的+1还未触发)
-      `掉血补气 +1 实际 ${engine.state.players[1 - fp].qi}`,
+      engine.state.players[1 - fpMain].qi === 6 + 1, // 初始6 + 掉血1 (回合结算的+1还未触发)
+      `掉血补气 +1 实际 ${engine.state.players[1 - fpMain].qi}`,
     );
   } else {
     console.log('  ⚠ 本局未抽到武将牌，跳过');
@@ -93,13 +108,13 @@ function main(): void {
   const mengDe = buildFullDeck().find((c: any) => c.id === 'mengde_0');
   if (mengDe) {
     // 把 activePlayer 重置回先手，确保可行动
-    engine.turn.setActivePlayer(fp);
-    engine.state.players[fp].hand.push({ uid: 'test_mengde', def: mengDe });
-    const beforeLayers = engine.state.players[fp].strategies.length;
-    const r = applyCardEffect(engine, { uid: 'test_mengde', def: mengDe }, fp);
+    engine.turn.setActivePlayer(fpMain);
+    engine.state.players[fpMain].hand.push({ uid: 'test_mengde', def: mengDe });
+    const beforeLayers = engine.state.players[fpMain].strategies.length;
+    const r = applyCardEffect(engine, { uid: 'test_mengde', def: mengDe }, fpMain);
     assert(r.ok, '打出孟德新书');
-    assert(engine.state.players[fp].strategies.length === beforeLayers + 1, '兵法记录 +1 条');
-    assert(engine.state.players[fp].strategies[engine.state.players[fp].strategies.length - 1].remainingTurns === 3, '兵法持续 3 回合');
+    assert(engine.state.players[fpMain].strategies.length === beforeLayers + 1, '兵法记录 +1 条');
+    assert(engine.state.players[fpMain].strategies[engine.state.players[fpMain].strategies.length - 1].remainingTurns === 3, '兵法持续 3 回合');
   }
 
   console.log('\n=== 手动爆气按钮测试 ===');
@@ -142,7 +157,7 @@ function main(): void {
   assert(engine.turn.phase === TurnPhase.Action, '回合结束后回到行动阶段');
   // 先手互换
   assert(
-    engine.state.firstPlayer === (1 - fp) as any,
+    engine.state.firstPlayer === (1 - fpMain) as any,
     `先手互换 实际玩家${engine.state.firstPlayer + 1}`,
   );
 
@@ -349,6 +364,8 @@ function main(): void {
   const atk4 = engine4.state.firstPlayer;
   const def4 = (1 - atk4) as 0 | 1;
   engine4.state.players[def4].hp = 2;
+  // 清空防御方手牌，确保 totalHealInHand=0
+  engine4.state.players[def4].hand = [];
   const general4def = bfd3().find((c: any) => c.id === 'weiyan');
   if (general4def) {
     engine4.state.players[atk4].qi = 10;

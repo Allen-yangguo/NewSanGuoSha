@@ -87,15 +87,15 @@
             class="btn qi"
             :disabled="!canUseNormalQi"
             @click="() => useBonus('normal')"
-            title="整局限 1 次，+2 气"
-          >普通补气 +2</button>
+            :title="state.roundCount < 3 ? '第 4 回合后激活 · 整局限 1 次 · +2 气' : '整局限 1 次 · +2 气'"
+          >普通补气 +2{{ state.roundCount < 3 ? ` (R${state.roundCount + 1}/4)` : '' }}</button>
 
           <button
             class="btn qi"
             :disabled="!canUseBigQi"
             @click="() => useBonus('big')"
-            title="整局限 1 次，+3 气"
-          >大补气 +3</button>
+            :title="state.roundCount < 6 ? '第 7 回合后激活 · 整局限 1 次 · +3 气' : '整局限 1 次 · +3 气'"
+          >大补气 +3{{ state.roundCount < 6 ? ` (R${state.roundCount + 1}/7)` : '' }}</button>
 
           <button
             class="btn gold"
@@ -290,10 +290,10 @@ const gameOverClass = computed(() => {
 
 // ===== 补气按钮可用性 =====
 const canUseNormalQi = computed(() =>
-  isMyTurn.value && !state.you.usedNormalQi && !state.gameOver && state.defensePid === null,
+  isMyTurn.value && !state.you.usedNormalQi && !state.gameOver && state.defensePid === null && state.roundCount >= 3,
 );
 const canUseBigQi = computed(() =>
-  isMyTurn.value && !state.you.usedBigQi && !state.gameOver && state.defensePid === null,
+  isMyTurn.value && !state.you.usedBigQi && !state.gameOver && state.defensePid === null && state.roundCount >= 6,
 );
 const canUseBurst = computed(() =>
   isMyTurn.value && state.you.qi >= 6 && !state.gameOver && state.defensePid === null,

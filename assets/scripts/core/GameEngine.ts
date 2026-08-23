@@ -526,9 +526,10 @@ export class GameEngine {
 
   // ============ 玩家本局专属固有能力按钮 ============
 
-  /** 普通补气按钮：+2 气，整局限 1 次 */
+  /** 普通补气按钮：+2 气，整局限 1 次，第 4 回合（roundCount >= 3）后激活 */
   useNormalQiButton(actor: PlayerId): EffectResult {
     if (!this.canAct(actor)) return { ok: false, message: '非己方行动阶段' };
+    if (this.state.roundCount < 3) return { ok: false, message: `普通补气第 4 回合后激活（当前第 ${this.state.roundCount + 1} 回合）` };
     const p = this.state.players[actor];
     if (p.usedNormalQi) return { ok: false, message: '本局已使用普通补气' };
     p.usedNormalQi = true;
@@ -537,9 +538,10 @@ export class GameEngine {
     return { ok: true, message: '+2 气', triggeredQi: true };
   }
 
-  /** 大补气按钮：+3 气，整局限 1 次 */
+  /** 大补气按钮：+3 气，整局限 1 次，第 7 回合（roundCount >= 6）后激活 */
   useBigQiButton(actor: PlayerId): EffectResult {
     if (!this.canAct(actor)) return { ok: false, message: '非己方行动阶段' };
+    if (this.state.roundCount < 6) return { ok: false, message: `大补气第 7 回合后激活（当前第 ${this.state.roundCount + 1} 回合）` };
     const p = this.state.players[actor];
     if (p.usedBigQi) return { ok: false, message: '本局已使用大补气' };
     p.usedBigQi = true;
