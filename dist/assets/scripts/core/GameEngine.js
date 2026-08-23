@@ -302,7 +302,9 @@ class GameEngine {
             this.usedBaguaCards.push(card);
             this.consumeCard(actor, card);
             this.log(`玩家${actor + 1} 打出【八卦阵】· 将全额反弹武将伤害`);
-            return { ok: true, message: '八卦阵生效 · 待结算时反弹', triggeredReflect: true };
+            // 立即结算反弹（不再需要防御方点「确认防御」）
+            const r = this.resolvePendingAttack();
+            return { ok: true, message: r.message || '八卦阵反弹生效', triggeredReflect: true };
         }
         if (type === types_1.FormationType.ZhuiFeng) {
             // 追风阵：自身回合打出

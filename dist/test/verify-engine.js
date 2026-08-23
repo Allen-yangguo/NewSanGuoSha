@@ -249,13 +249,11 @@ function main() {
     let rBg = (0, CardEffect_1.applyCardEffect)(engineBg, { uid: 'sa', def: soldierDefBg }, fpBg);
     assert(rBg.ok, 'A 打出士兵攻击 B');
     assert(engineBg.turn.isAwaitingDefense(), '进入防御响应');
-    // B 打出八卦阵
+    // B 打出八卦阵（打出后立即触发反弹结算，A 自动进入受击阶段）
     rBg = (0, CardEffect_1.applyCardEffect)(engineBg, { uid: 'bg', def: baguaDef }, defBg);
     assert(rBg.ok, 'B 打出八卦阵');
     assert(rBg.triggeredReflect === true, '八卦阵生效');
-    // B 放弃防御，触发结算
-    rBg = engineBg.defenderPass();
-    // 八卦阵触发：A 进入反弹受击
+    // 八卦阵已自动结算：A 进入反弹受击阶段（无需 B 再点确认防御）
     assert(engineBg.turn.isAwaitingDefense(), '八卦阵反弹 · A 进入受击阶段');
     assert(engineBg.pendingAttack?.isReflect === true, '反弹受击标记为 isReflect');
     assert(engineBg.pendingAttack?.defender === fpBg, '反弹受击方为 A');
@@ -286,7 +284,7 @@ function main() {
     engineBg2.state.players[fp2].qi = 10;
     (0, CardEffect_1.applyCardEffect)(engineBg2, { uid: 'sa2', def: soldierDefBg }, fp2);
     (0, CardEffect_1.applyCardEffect)(engineBg2, { uid: 'bg2', def: baguaDef }, def2);
-    engineBg2.defenderPass();
+    // 八卦阵打出后立即自动结算，A 进入反弹受击阶段（无需 defenderPass）
     // A 在反弹受击中尝试出八卦阵，应失败
     const rBg2 = (0, CardEffect_1.applyCardEffect)(engineBg2, { uid: 'bg3', def: baguaDef }, fp2);
     assert(!rBg2.ok, '反弹受击不可再出八卦阵');
@@ -324,7 +322,7 @@ function main() {
         engine3.state.players[atk3].qi = 10;
         engine3.state.players[atk3].hand.push({ uid: 'test_g3', def: general3def });
         // 防御方手牌中放入补血牌（+2），overkill=1，2>1 可救
-        const healDef = bfd3().find((c) => c.id === 'wine_0');
+        const healDef = bfd3().find((c) => c.id === 'medicine_0');
         engine3.state.players[def3].hand.push({ uid: 'test_heal3', def: healDef });
         const r = (0, CardEffect_1.applyCardEffect)(engine3, { uid: 'test_g3', def: general3def }, atk3);
         assert(r.ok, '打出魏延（攻3）');

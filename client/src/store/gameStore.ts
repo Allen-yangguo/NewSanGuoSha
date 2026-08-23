@@ -45,11 +45,28 @@ function triggerUltimateAnim(): void {
 
 /** 胜负过场动画（触发后 3s 自动关闭，给旗帜/跪地动画完整播放时间） */
 export const gameOverAnimating = ref(false);
+/** 游戏结束但延迟播放动画（让玩家看清最后一手出牌） */
+export const gameOverPending = ref(false);
 let gameOverTimer: ReturnType<typeof setTimeout> | null = null;
+let gameOverDelayTimer: ReturnType<typeof setTimeout> | null = null;
 function triggerGameOverAnim(): void {
   if (gameOverTimer) clearTimeout(gameOverTimer);
   gameOverAnimating.value = true;
   gameOverTimer = setTimeout(() => { gameOverAnimating.value = false; }, 3000);
+}
+/** 延迟触发胜负动画：先等 1.5s 让玩家看清最后出牌，再播动画 */
+function triggerGameOverWithDelay(winner: number | null): void {
+  gameOverPending.value = true;
+  if (gameOverDelayTimer) clearTimeout(gameOverDelayTimer);
+  gameOverDelayTimer = setTimeout(() => {
+    gameOverPending.value = false;
+    // 延迟结束后设置 gameOver，触发胜负弹窗显示
+    state.gameOver = true;
+    triggerGameOverAnim();
+    if (winner === state.yourPid) playSfx('win');
+    else if (winner === null) playSfx('draw');
+    else playSfx('lose');
+  }, 1800);
 }
 
 function addPlayedCard(card: any, actorPid: number, attackPower?: number): void {
@@ -150,7 +167,13 @@ export function pushToast(msg: string): void {
 
 /** 将服务端/本地引擎推送的 RoomStateView 应用到响应式 state */
 function applyRoomState(s: RoomStateView): void {
-  Object.assign(state, s);
+  // 胜负动画延迟期间：暂缓设置 gameOver，让玩家看清最后一手出牌
+  if (gameOverPending.value && s.gameOver) {
+    const deferred = { ...s, gameOver: false };
+    Object.assign(state, deferred);
+  } else {
+    Object.assign(state, s);
+  }
   state.you = { ...s.you, handCards: [...(s.you?.handCards || [])], strategies: [...(s.you?.strategies || [])] };
   // 单机模式下对手手牌也可暴露给 AI 面板（但 UI 不显示），局域网模式永远为空
   state.opponent = { ...s.opponent, handCards: [], strategies: [...(s.opponent?.strategies || [])] };
@@ -208,16 +231,14 @@ export function initStore(): void {
     else if (d.type === 'burst') playSfx('strategy');
   });
   socket.on('eventGameOver', (d) => {
-    triggerGameOverAnim();
+    // 延迟播放胜负动画：先等 1.8s 让玩家看清最后一手出牌
+    triggerGameOverWithDelay(d.winner);
     if (d.winner === state.yourPid) {
       pushToast('🎉 恭喜你获胜！');
-      playSfx('win');
     } else if (d.winner === null) {
       pushToast('🤝 平局');
-      playSfx('draw');
     } else {
       pushToast('💀 你输了，下次再战！');
-      playSfx('lose');
     }
   });
   socket.on('eventTurnEnd', () => {
@@ -303,6 +324,8 @@ export function exitToEntry(): void {
   state.gameOver = false;
   ultimateAnimating.value = false;
   gameOverAnimating.value = false;
+  gameOverPending.value = false;
+  if (gameOverDelayTimer) { clearTimeout(gameOverDelayTimer); gameOverDelayTimer = null; }
   clearPlayedCards();
 }
 
