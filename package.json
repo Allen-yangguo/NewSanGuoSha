@@ -1,28 +1,29 @@
 {
   "name": "sanguosha-card-game",
-  "version": "1.0.0",
-  "description": "三国卡牌对战 · 107 张定稿 · 微信小游戏（Cocos-Creator 3.x）+ Web 测试版",
+  "version": "2.1.0",
+  "description": "三国卡牌对战 · 联机版 · Node.js + Socket.IO + Vue3",
   "scripts": {
     "test:deck": "ts-node test/verify-deck.ts",
     "test:engine": "ts-node test/verify-engine.ts",
     "build:web": "node scripts/build-web.js",
+    "build": "cd client && npm install && npm run build",
     "typecheck": "tsc --noEmit",
     "start:server": "ts-node server/server.ts",
     "dev:server": "ts-node server/server.ts"
   },
   "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "dependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^20.0.0",
     "@types/qrcode": "^1.5.6",
-    "esbuild": "^0.28.2",
-    "ts-node": "^10.9.0",
-    "typescript": "^5.4.0"
-  },
-  "dependencies": {
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "qrcode": "^1.5.4",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.4.0"
   }
 }
