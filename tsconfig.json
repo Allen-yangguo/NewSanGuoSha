@@ -23,6 +23,7 @@
   },
   "include": [
     "assets/scripts/core/**/*.ts",
+    "server/**/*.ts",
     "test/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]

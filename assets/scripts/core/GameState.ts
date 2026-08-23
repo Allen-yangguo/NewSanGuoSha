@@ -35,6 +35,8 @@ export class GameState {
   defensePlayer: PlayerId = 1;
   /** 追风阵生效标记：若设置，则下回合不互换先手 */
   zhuiFengActive: boolean = false;
+  /** 本回合双方是否已结束行动（双方都 true 时才触发回合终局） */
+  actionEnded: [boolean, boolean] = [false, false];
   /** 牌库是否已耗尽 */
   deckDepleted: boolean = false;
   /** 游戏是否结束 */
@@ -195,11 +197,12 @@ export class GameState {
     return false;
   }
 
-  /** 重置回合内的临时计数（如掉血补气计数） */
+  /** 重置回合内的临时计数（如掉血补气计数、行动结束标记） */
   resetTurnCounters(): void {
     for (const p of this.players) {
       p.hpLossQiThisTurn = 0;
     }
+    this.actionEnded = [false, false];
   }
 
   /** 序列化为纯对象（供 UI 快照、调试、保存） */

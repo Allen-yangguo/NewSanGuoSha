@@ -18,7 +18,7 @@ function main(): void {
   console.log('=== 引擎初始化测试 ===');
   const engine = new GameEngine();
   engine.initGame();
-  assert(engine.state.deck.length === 107 - 10, `牌库剩余 97 张（107-10 初始手牌）实际 ${engine.state.deck.length}`);
+  assert(engine.state.deck.length === 104 - 10, `牌库剩余 94 张（104-10 初始手牌）实际 ${engine.state.deck.length}`);
   assert(engine.state.players[0].hand.length === 5, '玩家1 初始 5 张手牌');
   assert(engine.state.players[1].hand.length === 5, '玩家2 初始 5 张手牌');
   assert(engine.state.players[0].hp === 6, '玩家1 初始血量 6');
@@ -129,11 +129,16 @@ function main(): void {
   console.log('\n=== 回合结束流程测试 ===');
   const roundBefore = engine.state.roundCount;
   const qiBefore = engine.state.players[0].qi;
-  // 攻击权可能在防御方手中，需要确保由当前 activePlayer 结束
-  engine.turn.setActivePlayer(engine.turn.activePlayer);
-  engine.endActionPhase();
+  // 新规则：双方都结束行动才触发回合终局
+  const ap = engine.turn.activePlayer;
+  const other = (1 - ap) as 0 | 1;
+  engine.turn.setActivePlayer(ap);
+  engine.endActionPhase(); // ap 结束行动 → 操作权交给 other
+  assert(engine.turn.activePlayer === other, `操作权交给对方 实际玩家${engine.turn.activePlayer + 1}`);
+  engine.endActionPhase(); // other 也结束行动 → 触发回合终局
   assert(engine.state.roundCount === roundBefore + 1, `回合数 +1 实际 ${engine.state.roundCount}`);
-  assert(engine.state.players[0].qi === qiBefore + 1, `全局回气 +1 实际 ${engine.state.players[0].qi - qiBefore}`);
+  // 全局回气改为每 2 回合补一次：第 1 回合结束(roundCount=1, 奇数)不补气
+  assert(engine.state.players[0].qi === qiBefore, `第1回合不回气 实际 ${engine.state.players[0].qi - qiBefore}`);
   assert(engine.turn.phase === TurnPhase.Action, '回合结束后回到行动阶段');
   // 先手互换
   assert(
@@ -153,8 +158,9 @@ function main(): void {
   const rZf = applyCardEffect(engineZf, { uid: 'zf_0', def: zhuifengDef }, fpZf);
   assert(rZf.ok, '先手玩家打出追风阵');
   assert(engineZf.state.zhuiFengActive, '追风阵标记已设置');
-  // 结束回合
-  engineZf.endActionPhase();
+  // 结束回合（新规则：双方都结束行动才触发）
+  engineZf.endActionPhase(); // fpZf 结束 → 操作权交给对方
+  engineZf.endActionPhase(); // 对方也结束 → 触发回合终局
   // 验证下回合先手仍是原先手（追风阵生效）
   assert(
     engineZf.state.firstPlayer === fpZf,
@@ -162,6 +168,7 @@ function main(): void {
   );
   assert(!engineZf.state.zhuiFengActive, '追风阵标记已清除（仅生效 1 回合）');
   // 再结束一回合，验证先手恢复正常互换
+  engineZf.endActionPhase();
   engineZf.endActionPhase();
   assert(
     engineZf.state.firstPlayer === (1 - fpZf) as any,
@@ -318,12 +325,12 @@ function main(): void {
   engine3.state.players[def3].hp = 2;
   // 攻击方有足够气打出一张 3 攻武将
   const { buildFullDeck: bfd3 } = require('../assets/scripts/core/cards');
-  const general3def = bfd3().find((c: any) => c.id === 'general_second_0');
+  const general3def = bfd3().find((c: any) => c.id === 'weiyan');
   if (general3def) {
     engine3.state.players[atk3].qi = 10;
     engine3.state.players[atk3].hand.push({ uid: 'test_g3', def: general3def });
     const r = applyCardEffect(engine3, { uid: 'test_g3', def: general3def }, atk3);
-    assert(r.ok, '打出二流大将（攻3）');
+    assert(r.ok, '打出魏延（攻3）');
     engine3.defenderPass();
     assert(engine3.state.players[def3].hp <= 0, '防御方被打至 0 血');
     assert(engine3.emergencyHealPending === def3, '进入紧急救血阶段');

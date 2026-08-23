@@ -8,13 +8,13 @@ import { CardCategory } from '../assets/scripts/core/types';
 function main(): void {
   const deck = buildFullDeck();
   assertDeckSize(deck);
-  console.log(`✓ 牌库总数：${deck.length} 张（预期 107）`);
+  console.log(`✓ 牌库总数：${deck.length} 张（预期 104）`);
 
   // 分类统计
   const counter: Record<string, { count: number; expected: number; names: Set<string> }> = {
     [CardCategory.General]:    { count: 0, expected: 38, names: new Set() },
     [CardCategory.Armor]:      { count: 0, expected: 23, names: new Set() },
-    [CardCategory.FunctionQi]: { count: 0, expected: 15, names: new Set() },
+    [CardCategory.FunctionQi]: { count: 0, expected: 12, names: new Set() },
     [CardCategory.FunctionHp]: { count: 0, expected: 19, names: new Set() },
     [CardCategory.Strategy]:   { count: 0, expected: 3, names: new Set() },
     [CardCategory.Ultimate]:   { count: 0, expected: 5, names: new Set() },
@@ -50,7 +50,7 @@ function main(): void {
   // 补气总量
   const qiCards = deck.filter(c => c.category === CardCategory.FunctionQi);
   const totalQi = qiCards.reduce((s, c) => s + c.value, 0);
-  console.log(`✓ 卡牌直接总补气：${totalQi}（预期 39）`);
+  console.log(`✓ 卡牌直接总补气：${totalQi}（预期 32）`);
 
   // 补血总量
   const hpCards = deck.filter(c => c.category === CardCategory.FunctionHp);
@@ -71,7 +71,7 @@ function main(): void {
   }
   console.log(`\n✓ 卡牌 ID 唯一性：${dup === 0 ? '通过' : `${dup} 个重复`}`);
 
-  if (allOk && totalAtk === 81 && totalCost === 80 && totalDef === 46 && totalQi === 39 && totalHp === 31 && totalUlt === 6) {
+  if (allOk && totalAtk === 81 && totalCost === 80 && totalDef === 46 && totalQi === 32 && totalHp === 31 && totalUlt === 6) {
     console.log('\n🎉 全部对账通过，牌库配置正确！');
   } else {
     console.log('\n⚠️ 存在对账不一致，请检查');

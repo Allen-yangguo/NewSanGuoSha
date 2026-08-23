@@ -1,7 +1,7 @@
 /**
- * 三国卡牌对战 · 全 107 张卡牌数据定义（最终定稿）
+ * 三国卡牌对战 · 全 104 张卡牌数据定义（最终定稿）
  * 严格按官方规则文档数量对账：
- *   武将 38 + 防具 23 + 功能 34 + 兵法 3 + 绝杀 5 + 阵法 4 = 107
+ *   武将 38 + 防具 23 + 功能 31 + 兵法 3 + 绝杀 5 + 阵法 4 = 104
  */
 import {
   CardCategory,
@@ -55,10 +55,26 @@ function buildGenerals(): CardDef[] {
     2, 2, '攻 2 · 耗气 2', 10,
   ));
   // 二流大将 ×7 攻3耗3
-  out.push(...makeCopies(
-    'general_second', '二流大将', CardCategory.General, GeneralTier.SecondRate,
-    3, 3, '攻 3 · 耗气 3', 7,
-  ));
+  const secondRate: Array<{ id: string; name: string }> = [
+    { id: 'weiyan', name: '魏延' },
+    { id: 'xiahou_dun', name: '夏侯惇' },
+    { id: 'zhangliao', name: '张辽' },
+    { id: 'xuhuang', name: '徐晃' },
+    { id: 'zhanghe', name: '张郃' },
+    { id: 'ganning', name: '甘宁' },
+    { id: 'taishici', name: '太史慈' },
+  ];
+  for (const g of secondRate) {
+    out.push({
+      id: g.id,
+      name: g.name,
+      category: CardCategory.General,
+      subtype: GeneralTier.SecondRate,
+      value: 3,
+      cost: 3,
+      desc: '大将 · 攻 3 · 耗气 3',
+    });
+  }
   // 五虎上将 ×5 攻4耗4（用真实姓名增加三国韵味）
   const fiveTiger: Array<{ id: string; name: string }> = [
     { id: 'guanyu', name: '关羽' },
@@ -113,16 +129,16 @@ function buildArmors(): CardDef[] {
   return out;
 }
 
-/** 功能-补气牌：15 张 */
+/** 功能-补气牌：12 张 */
 function buildFunctionQi(): CardDef[] {
   const out: CardDef[] = [];
   out.push(...makeCopies(
     'ration', '兵粮补给', CardCategory.FunctionQi, QiTier.Ration,
-    2, 0, '自身回合打出 · 立即 +2 气', 8,
+    2, 0, '自身回合打出 · 立即 +2 气', 6,
   ));
   out.push(...makeCopies(
     'rest', '整军休战', CardCategory.FunctionQi, QiTier.Rest,
-    3, 0, '自身回合打出 · 立即 +3 气', 5,
+    3, 0, '自身回合打出 · 立即 +3 气', 4,
   ));
   out.push(...makeCopies(
     'supply', '军需急运', CardCategory.FunctionQi, QiTier.Supply,
@@ -210,23 +226,23 @@ function buildFormation(): CardDef[] {
   return out;
 }
 
-/** 构建完整 107 张牌库（按文档数量精确对账） */
+/** 构建完整 104 张牌库（按文档数量精确对账） */
 export function buildFullDeck(): CardDef[] {
   const out: CardDef[] = [];
   out.push(...buildGenerals());     // 38
   out.push(...buildArmors());       // 23
-  out.push(...buildFunctionQi());  // 15
+  out.push(...buildFunctionQi());  // 12
   out.push(...buildFunctionHp());  // 19
   out.push(...buildStrategy());     // 3
   out.push(...buildUltimate());     // 5
   out.push(...buildFormation());    // 4
-  // 合计 38+23+15+19+3+5+4 = 107
+  // 合计 38+23+12+19+3+5+4 = 104
   return out;
 }
 
-/** 数量自检（开发期调用，断言牌库总数=107） */
+/** 数量自检（开发期调用，断言牌库总数=104） */
 export function assertDeckSize(deck: CardDef[]): void {
-  const expected = 107;
+  const expected = 104;
   if (deck.length !== expected) {
     throw new Error(`牌库数量错误：期望 ${expected}，实际 ${deck.length}`);
   }
@@ -238,7 +254,7 @@ export function assertDeckSize(deck: CardDef[]): void {
   const expect: Record<string, number> = {
     [CardCategory.General]: 38,
     [CardCategory.Armor]: 23,
-    [CardCategory.FunctionQi]: 15,
+    [CardCategory.FunctionQi]: 12,
     [CardCategory.FunctionHp]: 19,
     [CardCategory.Strategy]: 3,
     [CardCategory.Ultimate]: 5,

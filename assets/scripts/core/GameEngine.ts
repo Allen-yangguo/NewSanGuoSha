@@ -109,8 +109,37 @@ export class GameEngine {
       // 紧急救血阶段：被击杀方可打补血牌
       return actor === this.emergencyHealPending;
     }
-    // 行动阶段：仅先手方可行动
-    return this.turn.isInActionPhase() && actor === this.turn.activePlayer;
+    // 行动阶段：仅当前行动玩家且未结束行动方可出牌
+    return this.turn.isInActionPhase()
+      && actor === this.turn.activePlayer
+      && !this.state.actionEnded[actor];
+  }
+
+  /** 判断行动阶段玩家是否还有牌可出（手牌为空或气量不足以打出任何牌时返回 false） */
+  canPlayAnyCard(actor: PlayerId): boolean {
+    const p = this.state.players[actor];
+    if (p.hand.length === 0) return false;
+    // 防御阶段：只需检查有无防具/八卦阵
+    if (this.turn.isAwaitingDefense()) {
+      return p.hand.some(c =>
+        c.def.category === CardCategory.Armor
+        || (c.def.category === CardCategory.Formation && c.def.subtype === FormationType.BaGua),
+      );
+    }
+    // 紧急救血阶段：只需检查有无补血牌
+    if (this.emergencyHealPending === actor) {
+      return p.hand.some(c => c.def.category === CardCategory.FunctionHp);
+    }
+    // 行动阶段：武将牌需消耗气量，其他牌无消耗
+    if (!this.canAct(actor)) return false;
+    return p.hand.some(c => {
+      // 武将牌：检查气量是否足够
+      if (c.def.category === CardCategory.General) {
+        return p.qi >= calcGeneralCost(c.def, p);
+      }
+      // 其他牌（补气/补血/兵法/阵法/绝杀）无气耗，均可打出
+      return true;
+    });
   }
 
   /** 从手牌中移除一张卡并放入弃牌堆 */
@@ -146,15 +175,18 @@ export class GameEngine {
     this.consumeCard(actor, card);
 
     // 设置待结算攻击，进入防御响应
+    const defenderId = (1 - actor) as PlayerId;
     this.pendingAttack = {
       damage,
       source: 'general',
       isYiTianJian: false,
       attacker: actor,
-      defender: (1 - actor) as PlayerId,
+      defender: defenderId,
       sourceCardUid: card.uid,
       isReflect: false,
     };
+    // 被攻击方重获操作权（即使之前已结束行动，被攻击后可反击）
+    this.state.actionEnded[defenderId] = false;
     this.defensePool = 0;
     this.baguaTriggered = false;
     this.usedArmorCards = [];
@@ -389,14 +421,15 @@ export class GameEngine {
    */
   private switchActiveAfterAttackResolve(attacker: PlayerId, defender: PlayerId): void {
     const defenderHasGeneral = this.hasGeneralInHand(defender);
-    if (defenderHasGeneral) {
-      // 防御方有武将牌：轮到防御方攻击
+    const defenderCanAct = !this.state.actionEnded[defender];
+    if (defenderHasGeneral && defenderCanAct) {
+      // 防御方有武将牌且未结束行动：轮到防御方攻击
       this.turn.setActivePlayer(defender);
       this.log(`攻击权切换 · 轮到玩家${defender + 1} 攻击`);
     } else {
-      // 防御方没有武将牌：攻击方继续行动（连击）
+      // 防御方没有武将牌或已结束行动：攻击方继续行动（连击）
       this.turn.setActivePlayer(attacker);
-      this.log(`玩家${defender + 1} 无武将牌 · 玩家${attacker + 1} 可继续连击`);
+      this.log(`玩家${defender + 1} 无武将牌或已结束行动 · 玩家${attacker + 1} 可继续连击`);
     }
   }
 
@@ -494,12 +527,26 @@ export class GameEngine {
 
   // ============ 回合终局流程 ============
 
-  /** 先手玩家主动结束行动阶段 */
+  /** 当前行动玩家主动结束行动：标记已结束，操作权交给对方；双方都结束后才触发回合终局 */
   endActionPhase(): EffectResult {
     if (this.turn.isAwaitingDefense()) return { ok: false, message: '请先完成防御响应' };
     if (this.emergencyHealPending !== null) return { ok: false, message: '等待紧急救血' };
     if (!this.turn.isInActionPhase()) return { ok: false, message: '非行动阶段' };
-    this.log(`玩家${this.turn.activePlayer + 1} 结束行动`);
+    const actor = this.turn.activePlayer;
+    if (this.state.actionEnded[actor]) return { ok: false, message: '你已结束行动' };
+
+    this.state.actionEnded[actor] = true;
+    const other = (1 - actor) as PlayerId;
+    this.log(`玩家${actor + 1} 结束行动`);
+
+    if (!this.state.actionEnded[other]) {
+      // 对方还没结束行动 → 操作权交给对方
+      this.turn.setActivePlayer(other);
+      this.log(`操作权交给玩家${other + 1}`);
+      return { ok: true, message: '结束行动 · 等待对方行动' };
+    }
+    // 双方都已结束行动 → 触发回合终局
+    this.log(`双方均已结束行动 · 回合终局`);
     this.endTurn();
     return { ok: true, message: '回合结束' };
   }
@@ -508,13 +555,14 @@ export class GameEngine {
   endTurn(): void {
     // 1. 回合终局结算
     this.turn.phase = TurnPhase.Settle;
+    const qiRecovery = this.state.roundCount % 2 === 0; // 每 2 回合补一次气
     for (const p of this.state.players) {
-      // 全局通用回气：双方各 +1
-      p.qi += 1;
+      // 全局回气：每 2 回合双方各 +1
+      if (qiRecovery) p.qi += 1;
       // 兵法倒计时 -1
       tickStrategies(p);
     }
-    this.log(`回合结算 · 双方各 +1 气 · 兵法倒计时 -1`);
+    this.log(`回合结算 · ${qiRecovery ? '双方各 +1 气 · ' : ''}兵法倒计时 -1`);
     if (this.state.checkGameOver()) return;
 
     // 2. 补牌阶段
