@@ -224,15 +224,41 @@ export class GameEngine {
     return { ok: true, message: `+${card.def.value} 气`, triggeredQi: true };
   }
 
-  /** 功能-补血：未满血回血 / 满血转气；绝杀击杀时不可用（由 emergencyHealPending 状态控制） */
+  /** 功能-补血：未满血回血 / 满血转气；紧急救血时需先抵消溢出伤害 */
   playFunctionHp(card: CardInstance, actor: PlayerId): EffectResult {
     if (card.def.category !== CardCategory.FunctionHp) return { ok: false, message: '非补血牌' };
     const p = this.state.players[actor];
 
-    // 紧急救血阶段：仅在被击杀且非绝杀击杀时可用
+    // 紧急救血阶段：补血需先抵消 overkill
     if (this.emergencyHealPending === actor) {
-      // 允许补血续命
-    } else if (!this.canAct(actor)) {
+      const overkill = p.overkill;
+      const effective = card.def.value - overkill;
+      this.consumeCard(actor, card);
+      if (effective > 0) {
+        // 补血量 > 溢出 → 救活，剩余回血
+        p.hp = Math.min(HP_MAX, p.hp + effective);
+        p.overkill = 0;
+        this.emergencyHealPending = null;
+        this.log(`玩家${actor + 1} 紧急救血成功 +${effective} 血 → HP ${p.hp}`);
+        return { ok: true, message: `紧急救血 +${effective}`, triggeredHeal: true };
+      } else {
+        // 补血量 <= 溢出 → 抵扣部分溢出，仍未救活
+        p.overkill = overkill - card.def.value;
+        this.log(`玩家${actor + 1} 补血 ${card.def.value} 抵扣溢出 · 剩余溢出 ${p.overkill}`);
+        // 检查剩余手牌是否还能救
+        const remaining = this.totalHealInHand(actor);
+        if (remaining <= p.overkill) {
+          this.emergencyHealPending = null;
+          p.overkill = 0;
+          this.log(`玩家${actor + 1} 剩余补血 ${remaining} 不足 · 无法挽救`);
+          this.state.checkGameOver();
+          return { ok: true, message: '补血不足 · 无法挽救', triggeredHeal: true };
+        }
+        return { ok: true, message: `抵扣溢出 ${card.def.value} · 剩余溢出 ${p.overkill}`, triggeredHeal: true };
+      }
+    }
+
+    if (!this.canAct(actor)) {
       return { ok: false, message: '非己方行动阶段' };
     }
 
@@ -242,11 +268,6 @@ export class GameEngine {
       const healed = p.hp - before;
       this.log(`玩家${actor + 1} 打出【${card.def.name}】回 ${healed} 血 → 当前 ${p.hp}/${HP_MAX}`);
       this.consumeCard(actor, card);
-      // 若是紧急救血且救活，清除标记
-      if (this.emergencyHealPending === actor && p.hp > 0) {
-        this.emergencyHealPending = null;
-        this.log(`玩家${actor + 1} 紧急救血成功，续命！`);
-      }
       return { ok: true, message: `回 ${healed} 血`, triggeredHeal: true };
     } else {
       // 满血时 1:1 转化为气量
@@ -464,16 +485,33 @@ export class GameEngine {
     }
 
     if (target.hp <= 0) {
+      const overkill = amount - before;
       if (opts.source === 'ultimate') {
-        // 绝杀击杀：禁止所有补血，直接判负
+        // 绝杀击杀：直接判负
         this.log(`玩家${targetId + 1} 被绝杀击杀 · 不可急救`);
         this.state.checkGameOver();
       } else {
-        // 普通攻击打至 0 血：可立刻补血续命
-        this.log(`玩家${targetId + 1} 被打至 0 血 · 进入紧急救血阶段`);
-        this.emergencyHealPending = targetId;
+        // 普通攻击打至 0 血：检查能否通过补血救活
+        const totalHeal = this.totalHealInHand(targetId);
+        if (totalHeal > overkill) {
+          // 有救 → 进入紧急救血
+          target.overkill = overkill;
+          this.emergencyHealPending = targetId;
+          this.log(`玩家${targetId + 1} 被打至 0 血 · 溢出 ${overkill} · 可救血（手牌补血 ${totalHeal}）`);
+        } else {
+          // 无救 → 直接判负
+          this.log(`玩家${targetId + 1} 补血量 ${totalHeal} 不足覆盖溢出 ${overkill} · 无法挽救`);
+          this.state.checkGameOver();
+        }
       }
     }
+  }
+
+  /** 计算手牌中所有补血牌的总补血量 */
+  private totalHealInHand(pid: PlayerId): number {
+    return this.state.players[pid].hand
+      .filter(c => c.def.category === CardCategory.FunctionHp)
+      .reduce((sum, c) => sum + c.def.value, 0);
   }
 
   /** 紧急救血阶段：被击杀方放弃补血，接受败北 */

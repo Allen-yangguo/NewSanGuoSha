@@ -34,6 +34,25 @@ export interface PlayedCard {
 export const playedCards = reactive<PlayedCard[]>([]);
 const MAX_PLAYED = 8;
 
+// ===== 过场动画状态 =====
+/** 绝杀过场动画（触发后 1.5s 自动关闭） */
+export const ultimateAnimating = ref(false);
+let ultimateTimer: ReturnType<typeof setTimeout> | null = null;
+function triggerUltimateAnim(): void {
+  if (ultimateTimer) clearTimeout(ultimateTimer);
+  ultimateAnimating.value = true;
+  ultimateTimer = setTimeout(() => { ultimateAnimating.value = false; }, 1500);
+}
+
+/** 胜负过场动画（触发后 3s 自动关闭，给旗帜/跪地动画完整播放时间） */
+export const gameOverAnimating = ref(false);
+let gameOverTimer: ReturnType<typeof setTimeout> | null = null;
+function triggerGameOverAnim(): void {
+  if (gameOverTimer) clearTimeout(gameOverTimer);
+  gameOverAnimating.value = true;
+  gameOverTimer = setTimeout(() => { gameOverAnimating.value = false; }, 3000);
+}
+
 function addPlayedCard(card: any, actorPid: number, attackPower?: number): void {
   const isMine = actorPid === state.yourPid;
   // 构造一个 CardView 兼容对象
@@ -175,6 +194,7 @@ export function initStore(): void {
       setTimeout(() => playSfx('hitLight'), 200);
     }
     if (d.result?.triggeredUltimate) {
+      triggerUltimateAnim();
       playSfx('ultimate');
     }
   });
@@ -189,6 +209,7 @@ export function initStore(): void {
     else if (d.type === 'burst') playSfx('strategy');
   });
   socket.on('eventGameOver', (d) => {
+    triggerGameOverAnim();
     if (d.winner === state.yourPid) {
       pushToast('🎉 恭喜你获胜！');
       playSfx('win');
@@ -228,7 +249,7 @@ export function startSingle(): void {
       addPlayedCard(d.card, d.actorPid, d.attackPower);
       playSfx(sfxForCard(d.card.category));
       if (d.result?.triggeredDamage) setTimeout(() => playSfx('hitLight'), 200);
-      if (d.result?.triggeredUltimate) playSfx('ultimate');
+      if (d.result?.triggeredUltimate) { triggerUltimateAnim(); playSfx('ultimate'); }
     },
     onEventDamage: (d) => {
       if (d.message) pushToast('⚔ ' + d.message);
@@ -241,6 +262,7 @@ export function startSingle(): void {
       else if (d.type === 'burst') playSfx('strategy');
     },
     onEventGameOver: (d) => {
+      triggerGameOverAnim();
       if (d.winner === state.yourPid) { pushToast('🎉 恭喜你获胜！'); playSfx('win'); }
       else if (d.winner === null) { pushToast('🤝 平局'); playSfx('draw'); }
       else { pushToast('💀 你输了，下次再战！'); playSfx('lose'); }
@@ -280,6 +302,8 @@ export function exitToEntry(): void {
   state.yourSlot = null;
   state.yourPid = null;
   state.gameOver = false;
+  ultimateAnimating.value = false;
+  gameOverAnimating.value = false;
   clearPlayedCards();
 }
 

@@ -63,6 +63,7 @@ export class GameState {
       usedNormalQi: false,
       usedBigQi: false,
       hpLossQiThisTurn: 0,
+      overkill: 0,
     };
   }
 

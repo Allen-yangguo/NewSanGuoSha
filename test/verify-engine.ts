@@ -329,6 +329,9 @@ function main(): void {
   if (general3def) {
     engine3.state.players[atk3].qi = 10;
     engine3.state.players[atk3].hand.push({ uid: 'test_g3', def: general3def });
+    // 防御方手牌中放入补血牌（+2），overkill=1，2>1 可救
+    const healDef = bfd3().find((c: any) => c.id === 'wine_0');
+    engine3.state.players[def3].hand.push({ uid: 'test_heal3', def: healDef });
     const r = applyCardEffect(engine3, { uid: 'test_g3', def: general3def }, atk3);
     assert(r.ok, '打出魏延（攻3）');
     engine3.defenderPass();
@@ -338,6 +341,25 @@ function main(): void {
     // 救血方放弃
     engine3.emergencyHealGiveUp();
     assert(engine3.state.gameOver, '放弃救血后游戏结束');
+  }
+
+  console.log('\n=== 补血不足无法挽救直接判负测试 ===');
+  const engine4 = new GameEngine();
+  engine4.initGame();
+  const atk4 = engine4.state.firstPlayer;
+  const def4 = (1 - atk4) as 0 | 1;
+  engine4.state.players[def4].hp = 2;
+  const general4def = bfd3().find((c: any) => c.id === 'weiyan');
+  if (general4def) {
+    engine4.state.players[atk4].qi = 10;
+    engine4.state.players[atk4].hand.push({ uid: 'test_g4', def: general4def });
+    // 防御方无补血牌 → overkill=1，无法挽救 → 直接判负
+    const r = applyCardEffect(engine4, { uid: 'test_g4', def: general4def }, atk4);
+    assert(r.ok, '打出魏延（攻3）');
+    engine4.defenderPass();
+    assert(engine4.state.players[def4].hp <= 0, '防御方被打至 0 血');
+    assert(engine4.state.gameOver, '无补血牌 · 直接判负');
+    assert(engine4.emergencyHealPending === null, '不进入紧急救血');
   }
 
   console.log(`\n=== 测试结果 ===`);

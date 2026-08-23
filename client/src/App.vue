@@ -177,8 +177,20 @@
       </div>
     </div>
 
-    <!-- 游戏结束遮罩 -->
-    <div class="gameover-mask" v-if="state.gameOver">
+    <!-- 绝杀过场动画 -->
+    <div class="ultimate-overlay" v-if="ultimateAnimating">
+      <div class="ultimate-text">绝杀</div>
+    </div>
+
+    <!-- 胜负过场动画 -->
+    <div class="go-transition" v-if="state.gameOver && gameOverAnimating" :class="gameOverClass">
+      <VictoryAnim v-if="gameOverClass === 'win'" />
+      <DefeatAnim v-else-if="gameOverClass === 'lose'" />
+      <div v-else class="go-transition-text">{{ gameOverTitle }}</div>
+    </div>
+
+    <!-- 游戏结束遮罩（过场动画结束后显示） -->
+    <div class="gameover-mask" v-if="state.gameOver && !gameOverAnimating">
       <div class="gameover-card">
         <div class="gameover-title" :class="gameOverClass">{{ gameOverTitle }}</div>
         <div class="gameover-desc">{{ state.gameOverDetail }}</div>
@@ -197,12 +209,15 @@ import PlayerPanel from './components/PlayerPanel.vue';
 import GameCard from './components/GameCard.vue';
 import PlayedCardsZone from './components/PlayedCardsZone.vue';
 import EntryScreen from './components/EntryScreen.vue';
+import VictoryAnim from './components/VictoryAnim.vue';
+import DefeatAnim from './components/DefeatAnim.vue';
 import { soundManager } from './audio/SoundManager';
 import {
   state, toastLogs, qrInfo, isMyTurn, isAwaitingDefense, isEmergencyHealing,
   canEndTurn, canConfirmDefend, canGiveUpHeal, playedCards, gameMode,
   initStore, startSingle, startLan, exitToEntry,
   useBonus, confirmDefend, giveUpHeal, endAction, playCard, resetRoom, fetchQrInfo,
+  ultimateAnimating, gameOverAnimating,
 } from './store/gameStore';
 import type { CardView, CardCategory } from './types/protocol';
 

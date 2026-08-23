@@ -247,7 +247,7 @@ function broadcastEvent(io: IOServer, event: string, payload: any): void {
 }
 
 /** 行动阶段：当前行动玩家无牌可出时自动结束行动 */
-function tryAutoEndAction(io: IOServer, room: RoomState): void {
+function tryAutoEndAction(io: IOServer, room: Room): void {
   if (room.engine.state.gameOver) return;
   if (!room.engine.turn.isInActionPhase()) return;
   const actor = room.engine.turn.activePlayer;

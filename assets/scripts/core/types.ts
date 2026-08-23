@@ -125,6 +125,8 @@ export interface PlayerState {
   usedBigQi: boolean;
   /** 本回合是否已触发掉血补气事件计数（用于诊断） */
   hpLossQiThisTurn: number;
+  /** 紧急救血阶段的溢出伤害（补血量需 > overkill 才能救活） */
+  overkill: number;
 }
 
 /** 回合阶段 */
