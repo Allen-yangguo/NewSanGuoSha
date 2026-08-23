@@ -9,6 +9,10 @@ web-test/bundle.js
 *.tmp
 .DS_Store
 Thumbs.db
+NUL
+
+# SSH 临时密钥
+.ssh-temp/
 
 # IDE
 .vscode/
