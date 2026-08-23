@@ -155,6 +155,22 @@ a { color: #8C4A40; }
 .gameover-title.draw { color: #8E672A; }
 .gameover-desc { font-size: 14px; color: #5C4A32; margin-bottom: 18px; line-height: 1.7; }
 
+/* 退出确认弹窗 */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5); z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+}
+.confirm-box {
+  background: linear-gradient(180deg, #FFFBEE 0%, #F0E0C0 100%);
+  border: 2px solid #825E3B; border-radius: 12px;
+  padding: 24px 32px; text-align: center;
+  box-shadow: 0 8px 24px rgba(75,59,42,.3);
+  min-width: 260px;
+}
+.confirm-title { font-size: 18px; font-weight: 800; color: #4B3B2A; margin-bottom: 6px; }
+.confirm-sub { font-size: 13px; color: #8E734F; }
+
 /* 绝杀过场动画 */
 .ultimate-overlay {
   position: fixed; inset: 0; z-index: 9998;

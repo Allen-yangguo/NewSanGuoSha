@@ -48,7 +48,7 @@
       <template v-else>
         <!-- 顶部：返回 + 静音 + 日志按钮 -->
         <div style="display:flex;justify-content:space-between;gap:6px;">
-          <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="exitToEntry">← 返回</button>
+          <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="showExitConfirm = true">← 返回</button>
           <div style="display:flex;gap:6px;">
             <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="showLogs = true">
               📜 ({{ state.logs.length }})
@@ -203,6 +203,18 @@
         </div>
       </div>
     </div>
+
+    <!-- 退出确认弹窗 -->
+    <div v-if="showExitConfirm" class="modal-overlay" @click.self="showExitConfirm = false">
+      <div class="confirm-box">
+        <div class="confirm-title">确定离开游戏吗？</div>
+        <div class="confirm-sub">离开后将对局中断，需重新开始</div>
+        <div style="display:flex;gap:10px;justify-content:center;margin-top:12px;">
+          <button class="btn dark" @click="showExitConfirm = false">取消</button>
+          <button class="btn primary" @click="confirmExit">确认离开</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -258,6 +270,13 @@ function toggleMute(): void {
 
 // ===== 日志弹窗 =====
 const showLogs = ref(false);
+
+// ===== 退出确认 =====
+const showExitConfirm = ref(false);
+function confirmExit(): void {
+  showExitConfirm.value = false;
+  exitToEntry();
+}
 
 // ===== 手牌选中状态（两次点击出牌）=====
 const selectedCardUid = ref<string | null>(null);
