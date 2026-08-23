@@ -52,10 +52,14 @@ a { color: #8C4A40; }
   color: #4B3B2A; text-shadow: 0 1px 0 #FFF8E4;
 }
 .lobby-sub { font-size: 13px; color: #7C6344; text-align: center; line-height: 1.7; }
-.lobby-url { font-size: 15px; font-weight: 700; color: #8C4A40; padding: 6px 12px; border: 1px dashed #A8864F; border-radius: 6px; background: #FFFBEE; }
-.lobby-qr { padding: 10px; background: #fff; border: 1px solid #D8C089; border-radius: 10px; }
-.lobby-qr img { width: 220px; height: 220px; display: block; }
-.lobby-status { min-height: 22px; font-size: 13px; color: #4B3B2A; }
+.lobby-url { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; }
+.lobby-url .share-input {
+  flex: 1; min-width: 180px;
+  font-size: 13px; color: #8C4A40; padding: 6px 10px;
+  border: 1px dashed #A8864F; border-radius: 6px; background: #FFFBEE;
+  font-family: monospace; cursor: pointer;
+}
+.lobby-status { min-height: 22px; font-size: 13px; color: #4B3B2A; text-align: center; }
 
 /* 对战页整体：对手面板 → 中域（牌库/回合/日志提示）→ 操作按钮区 → 手牌区 → 自己面板 */
 .opp-panel { }

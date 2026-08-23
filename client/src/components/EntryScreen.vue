@@ -1,5 +1,5 @@
 <!--
-  入口选择页：单机对战 / 局域网对战
+  入口选择页：单机对战 / 联机对战
 -->
 <template>
   <div class="entry-wrap">
@@ -12,9 +12,9 @@
         <div class="ec-desc">与 AI 对战<br/>无需联网</div>
       </button>
       <button class="entry-card lan" @click="$emit('select', 'lan')">
-        <div class="ec-icon">📡</div>
-        <div class="ec-name">局域网对战</div>
-        <div class="ec-desc">两台设备联机<br/>同一 WiFi</div>
+        <div class="ec-icon">🌐</div>
+        <div class="ec-name">联机对战</div>
+        <div class="ec-desc">两台设备联机<br/>公网/局域网通用</div>
       </button>
     </div>
   </div>

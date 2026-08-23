@@ -16,7 +16,7 @@ import * as http from 'http';
 import express = require('express');
 import cors = require('cors');
 import { Server as IOServer, Socket } from 'socket.io';
-import * as QRCode from 'qrcode';
+// QRCode 已移除：公网部署通过域名访问，局域网通过服务端日志的 IP 访问
 
 import { GameEngine } from '../assets/scripts/core/GameEngine';
 import { applyCardEffect } from '../assets/scripts/core/CardEffect';
@@ -273,56 +273,33 @@ function tryAutoEndAction(io: IOServer, room: Room): void {
 const app = express();
 app.use(cors());
 
-// 静态托管：优先 client/dist（Vue3 编译产物），回退到简单等待页
-const clientDist = path.resolve(__dirname, '..', 'client', 'dist');
+// 静态托管：基于 process.cwd() 解析 client/dist，兼容 ts-node 和编译后运行
+// ts-node 运行 server/server.ts 时 cwd 是项目根
+// node dist/server/server.js 运行时 cwd 是项目根
+const clientDist = path.resolve(process.cwd(), 'client', 'dist');
 app.use(express.static(clientDist));
-// 简单占位页：client 还没 build 时显示二维码
-app.get('/__qr', (_req: express.Request, res: express.Response) => {
-  const ip = getLanIp();
-  const url = `http://${ip}:${PORT}`;
-  res.type('html').send(`
-    <html><head><meta charset="utf-8"><title>三国卡牌对战 · 扫码加入</title>
-    <style>body{font-family:"Microsoft YaHei",sans-serif;display:flex;flex-direction:column;
-      align-items:center;justify-content:center;min-height:100vh;margin:0;
-      background:linear-gradient(135deg,#f3e9d7 0%,#e8d9bc 100%);color:#4b3b2a;}
-    h1{font-size:28px;margin:0 0 8px;letter-spacing:4px;}
-    p{margin:4px 0;color:#705c48;}
-    .box{background:#fff;padding:28px 32px;border-radius:12px;box-shadow:0 8px 24px rgba(75,59,42,.15);
-      display:flex;flex-direction:column;align-items:center;}
-    .url{font-size:18px;font-weight:bold;color:#8c4a40;margin:8px 0 16px;
-      padding:6px 14px;border:1px dashed #825e3b;border-radius:6px;background:#faf6f0;}
-    </style></head><body>
-    <div class="box">
-      <h1>三国卡牌对战</h1>
-      <p>两台手机连接同一 WiFi，扫描下方二维码或打开网址即可对战</p>
-      <div class="url">${url}</div>
-      <img id="qr" />
-      <p id="st" style="margin-top:14px;"></p>
-    </div>
-    <script>
-      fetch('/__qr_data').then(r=>r.json()).then(d=>{
-        document.getElementById('qr').src = d.qr;
-        document.getElementById('st').innerText = d.status;
-      });
-    </script>
-    </body></html>
-  `);
-});
-app.get('/__qr_data', async (_req: express.Request, res: express.Response) => {
-  const ip = getLanIp();
-  const url = `http://${ip}:${PORT}`;
-  const qr = await QRCode.toDataURL(url, { width: 280, margin: 1 });
+
+// 健康检查 / 状态接口（公网部署无二维码，但保留状态接口给前端大厅用）
+app.get('/__status', (_req: express.Request, res: express.Response) => {
   const p1 = room.players.p1.socketId ? '✅ 玩家1 已接入' : '⏳ 等待玩家1...';
   const p2 = room.players.p2.socketId ? '✅ 玩家2 已接入' : '⏳ 等待玩家2...';
-  res.json({ url, qr, status: `${p1} ｜ ${p2}` });
+  res.json({ status: `${p1} ｜ ${p2}`, started: room.started });
 });
-// 兜底 SPA 路由：Express v5 不支持 app.get('*')，改用中间件
-app.use((_req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  if (_req.path.startsWith('/socket.io/')) return _next(); // 不拦截 socket.io
-  if (_req.path === '/__qr' || _req.path === '/__qr_data') return _next(); // 已在前面路由处理过
-  // 若 client/dist/index.html 存在则 sendFile，否则重定向到 /__qr
+
+// SPA 兜底：所有未匹配路由都返回前端 index.html
+app.use((_req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (_req.path.startsWith('/socket.io/')) return next(); // 不拦截 socket.io
+  if (_req.path === '/__status') return next();
   res.sendFile(path.join(clientDist, 'index.html'), (err: any) => {
-    if (err) res.redirect('/__qr');
+    if (err) {
+      res.status(500).type('html').send(`
+        <html><body style="font-family:sans-serif;text-align:center;padding:40px;">
+        <h1>前端未构建</h1>
+        <p>请先执行 <code>cd client && npm install && npm run build</code></p>
+        <p>路径: ${clientDist}</p>
+        </body></html>
+      `);
+    }
   });
 });
 
@@ -604,22 +581,19 @@ function getPidBySocket(socketId: string): PlayerId | null {
 // ============================================================
 async function main() {
   const ip = getLanIp();
-  const url = `http://${ip}:${PORT}`;
+  const lanUrl = `http://${ip}:${PORT}`;
   server.listen(PORT, BIND_HOST, async () => {
-    const qr = await QRCode.toString(url, { type: 'terminal', small: true });
     console.log('');
     console.log('╔══════════════════════════════════════════════════╗');
     console.log('║     三国卡牌对战 · Socket.IO 联机服务已启动      ║');
     console.log('╠══════════════════════════════════════════════════╣');
-    console.log(`║  本机局域网访问： ${url.padEnd(37)}║`);
-    console.log(`║  服务监听地址：   ${BIND_HOST}:${PORT.toString().padEnd(29)}║`);
-    console.log(`║  控制台二维码页： ${(url + '/__qr').padEnd(37)}║`);
+    console.log(`║  服务监听：       ${BIND_HOST}:${PORT}                        ║`);
+    console.log(`║  本机访问：       ${lanUrl.padEnd(37)}║`);
+    console.log('║  公网部署：访问服务分配的域名（如 xxx.zeabur.app）║');
+    console.log('║  局域网部署：访问本机 IP + 端口                  ║');
     console.log('╠══════════════════════════════════════════════════╣');
-    console.log('║  迁移云服务器：仅改 PORT/BIND_HOST + 安全组     ║');
-    console.log('║  业务逻辑、事件协议、前端代码完全不变            ║');
+    console.log('║  前端入口：打开网页选择「单机 vs AI」或「联机」  ║');
     console.log('╚══════════════════════════════════════════════════╝');
-    console.log('');
-    console.log(qr);
     console.log('');
   });
 }

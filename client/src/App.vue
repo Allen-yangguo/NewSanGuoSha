@@ -19,7 +19,7 @@
     <!-- 局域网大厅（选了局域网但还没加入房间） -->
     <LobbyScreen v-else-if="gameMode === 'lan' && !state.yourSlot" @exit="exitToEntry" />
 
-    <!-- 局域网已加入但等待对手 / 单机模式直接进入对局 -->
+    <!-- 联机已加入但等待对手 / 单机模式直接进入对局 -->
     <template v-else-if="gameMode === 'single' || state.yourSlot">
       <!-- 等待对手 -->
       <div v-if="!state.started" class="lobby">
@@ -27,14 +27,18 @@
           <div class="lobby-title">等待对手</div>
           <div class="lobby-sub">
             你是：<b>{{ state.yourSlot?.toUpperCase() }} · 玩家 {{ (state.yourPid ?? 0) + 1 }}</b><br/>
-            请让另一位玩家扫描二维码或访问 URL 加入
+            <template v-if="gameMode === 'lan'">
+              请让好友打开同一网址加入房间
+            </template>
+            <template v-else>
+              正在为 AI 准备...
+            </template>
           </div>
-          <div class="lobby-url" v-if="qrInfo?.url">{{ qrInfo.url }}</div>
-          <div class="lobby-qr" v-if="qrInfo?.qr">
-            <img :src="qrInfo.qr" alt="qr" />
+          <div class="lobby-url" v-if="gameMode === 'lan'">
+            <input readonly :value="shareUrl" @click="copyShareUrl" class="share-input" />
+            <button class="btn" @click="copyShareUrl">复制网址</button>
           </div>
           <div style="display:flex;gap:8px;justify-content:center;">
-            <button class="btn" @click="fetchQrInfo">刷新</button>
             <button class="btn dark" @click="exitToEntry">返回</button>
           </div>
         </div>
@@ -213,10 +217,10 @@ import VictoryAnim from './components/VictoryAnim.vue';
 import DefeatAnim from './components/DefeatAnim.vue';
 import { soundManager } from './audio/SoundManager';
 import {
-  state, toastLogs, qrInfo, isMyTurn, isAwaitingDefense, isEmergencyHealing,
+  state, toastLogs, isMyTurn, isAwaitingDefense, isEmergencyHealing,
   canEndTurn, canConfirmDefend, canGiveUpHeal, playedCards, gameMode,
   initStore, startSingle, startLan, exitToEntry,
-  useBonus, confirmDefend, giveUpHeal, endAction, playCard, resetRoom, fetchQrInfo,
+  useBonus, confirmDefend, giveUpHeal, endAction, playCard, resetRoom,
   ultimateAnimating, gameOverAnimating,
 } from './store/gameStore';
 import type { CardView, CardCategory } from './types/protocol';
@@ -228,6 +232,21 @@ function onSelectMode(mode: 'single' | 'lan'): void {
     startSingle();
   } else {
     startLan();
+  }
+}
+
+// ===== 分享网址给好友 =====
+const shareUrl = computed(() => window.location.origin);
+function copyShareUrl(): void {
+  const url = window.location.origin;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).then(() => {
+      alert('网址已复制：' + url);
+    }).catch(() => {
+      alert('请手动复制：' + url);
+    });
+  } else {
+    alert('请手动复制：' + url);
   }
 }
 

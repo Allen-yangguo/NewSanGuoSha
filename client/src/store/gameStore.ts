@@ -19,7 +19,6 @@ let localEngine: LocalEngine | null = null;
 export const connected = ref(false);
 export const connecting = ref(false);
 export const lastError = ref<string | null>(null);
-export const qrInfo = ref<{ url: string; qr: string; status: string } | null>(null);
 
 const SLOT_KEY = 'sanguosha_slot';
 
@@ -396,10 +395,3 @@ export async function joinRoom(name?: string): Promise<{ ok: boolean; msg: strin
   }
 }
 
-/** 大厅页获取二维码信息（方便手机同WiFi扫码） */
-export async function fetchQrInfo(): Promise<void> {
-  try {
-    const r = await fetch('/__qr_data');
-    if (r.ok) qrInfo.value = await r.json();
-  } catch { /* ignore */ }
-}
