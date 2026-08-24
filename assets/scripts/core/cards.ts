@@ -224,10 +224,10 @@ function buildFormation(): CardDef[] {
     'zhuifeng', '追风阵', CardCategory.Formation, FormationType.ZhuiFeng,
     0, 0, '自身回合触发 · 下一回合仍为己方先手 · 生效后恢复默认轮换', 2,
   ));
-  // 龟背阵 ×1 本回合对方武将攻击 -1
+  // 龟背阵 ×1 持续3回合对方武将攻击 -1
   out.push(...makeCopies(
     'guibei', '龟背阵', CardCategory.Formation, FormationType.GuiBei,
-    0, 0, '自身回合触发 · 本回合对方武将攻击力 -1 · 绝杀不受影响 · 回合结束后消失', 1,
+    0, 0, '自身回合触发 · 持续3回合对方武将攻击力 -1 · 绝杀不受影响 · 到期消失', 1,
   ));
   return out;
 }

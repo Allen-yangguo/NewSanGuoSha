@@ -67,8 +67,10 @@ export class GameEngine {
   usedArmorCards: CardInstance[] = [];
   /** 当前防御响应中已使用的八卦阵卡（用于弃牌） */
   usedBaguaCards: CardInstance[] = [];
-  /** 龟背阵保护方（本回合该玩家受到武将攻击时伤害 -1，回合结束清除） */
+  /** 龟背阵保护方（该玩家受到武将攻击时伤害 -1，持续3回合） */
   guiBeiProtector: PlayerId | null = null;
+  /** 龟背阵剩余持续回合数（>0 时生效，每回合 -1，归 0 清除） */
+  guiBeiRemainingTurns: number = 0;
   /** 紧急救血等待中（普通攻击打至 0 血，可补血续命） */
   emergencyHealPending: PlayerId | null = null;
   /** 历史日志（用于 UI 显示与调试） */
@@ -371,13 +373,14 @@ export class GameEngine {
     }
 
     if (type === FormationType.GuiBei) {
-      // 龟背阵：自身回合打出，本回合对方武将攻击 -1
+      // 龟背阵：自身回合打出，持续3回合对方武将攻击 -1
       if (!this.canAct(actor)) return { ok: false, message: '非己方行动阶段' };
       if (this.turn.isAwaitingDefense()) return { ok: false, message: '当前正在等待防御响应' };
       this.guiBeiProtector = actor;
-      this.log(`玩家${actor + 1} 打出【龟背阵】· 本回合对方武将攻击 -1 · 绝杀不受影响`);
+      this.guiBeiRemainingTurns = 3;
+      this.log(`玩家${actor + 1} 打出【龟背阵】· 持续3回合对方武将攻击 -1 · 绝杀不受影响`);
       this.consumeCard(actor, card);
-      return { ok: true, message: '龟背阵生效 · 本回合对方武将攻击 -1' };
+      return { ok: true, message: '龟背阵生效 · 持续3回合对方武将攻击 -1' };
     }
 
     return { ok: false, message: '未知阵法' };
@@ -657,9 +660,15 @@ export class GameEngine {
       // 兵法倒计时 -1
       tickStrategies(p);
     }
-    // 龟背阵效果本回合结束消失
-    this.guiBeiProtector = null;
-    this.log(`回合结算 · ${qiRecovery ? '双方各 +1 气 · ' : ''}兵法倒计时 -1 · 龟背阵效果消失`);
+    // 龟背阵效果倒计时 -1，归 0 清除
+    if (this.guiBeiRemainingTurns > 0) {
+      this.guiBeiRemainingTurns -= 1;
+      if (this.guiBeiRemainingTurns === 0) {
+        this.guiBeiProtector = null;
+        this.log(`龟背阵效果到期消失`);
+      }
+    }
+    this.log(`回合结算 · ${qiRecovery ? '双方各 +1 气 · ' : ''}兵法倒计时 -1`);
     if (this.state.checkGameOver()) return;
 
     // 2. 补牌阶段
