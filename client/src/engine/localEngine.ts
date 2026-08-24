@@ -542,6 +542,7 @@ export class LocalEngine {
       turnPhase: this.mapPhase(s.phase),
       activePid: this.engine.turn.activePlayer,
       defensePid: this.engine.turn.isAwaitingDefense() ? this.engine.pendingAttack?.defender ?? null : null,
+      isReflect: this.engine.turn.isAwaitingDefense() && this.engine.pendingAttack?.isReflect === true,
       emergencyHealPid: this.engine.emergencyHealPending,
       firstPlayerPid: s.firstPlayer,
       deckCount: s.deck.length,

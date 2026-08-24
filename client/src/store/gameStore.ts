@@ -121,6 +121,7 @@ export const state = reactive<RoomStateView>({
   turnPhase: 'action',
   activePid: 0,
   defensePid: null,
+  isReflect: false,
   emergencyHealPid: null,
   firstPlayerPid: 0,
   deckCount: 0,

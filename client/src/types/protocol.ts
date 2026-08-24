@@ -64,6 +64,8 @@ export interface RoomStateView {
   turnPhase: TurnPhase;
   activePid: PlayerId;
   defensePid: PlayerId | null;
+  /** 当前防御响应是否为八卦阵反弹受击（true 时仅允许出防具，不可再出八卦阵） */
+  isReflect: boolean;
   emergencyHealPid: PlayerId | null;
   firstPlayerPid: PlayerId;
   deckCount: number;

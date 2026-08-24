@@ -345,7 +345,7 @@ function cardPlayable(c: CardView): boolean {
   if (myPid === null) return false;
   const cat = c.category as CardCategory;
 
-  // 防御阶段：只有防御者可出防具 / 八卦阵
+  // 防御阶段：只有防御者可出防具 / 八卦阵（允许嵌套反弹，八卦阵可反复出在来回反弹中）
   if (state.defensePid === myPid) {
     if (cat === ('armor' as any)) return true;
     if (cat === ('formation' as any) && c.id.startsWith('bagua')) return true;

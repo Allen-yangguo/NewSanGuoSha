@@ -125,6 +125,8 @@ interface RoomStateView {
   activePid: PlayerId;
   /** 防御响应中的受击者 pid */
   defensePid: PlayerId | null;
+  /** 当前防御响应是否为八卦阵反弹受击（true 时仅允许出防具，不可再出八卦阵） */
+  isReflect: boolean;
   /** 紧急救血等待中的 pid */
   emergencyHealPid: PlayerId | null;
   firstPlayerPid: PlayerId;
@@ -195,6 +197,8 @@ function buildRoomState(socketId: string): RoomStateView {
     room.engine.turn.isAwaitingDefense() && room.engine.pendingAttack
       ? room.engine.pendingAttack.defender
       : null;
+  const isReflect: boolean =
+    room.engine.turn.isAwaitingDefense() && room.engine.pendingAttack?.isReflect === true;
 
   return {
     roomId: ROOM_ID,
@@ -205,6 +209,7 @@ function buildRoomState(socketId: string): RoomStateView {
     turnPhase: room.engine.turn.phase,
     activePid: room.engine.turn.activePlayer,
     defensePid,
+    isReflect,
     emergencyHealPid: room.engine.emergencyHealPending,
     firstPlayerPid: room.engine.state.firstPlayer,
     deckCount: room.engine.state.deck.length,

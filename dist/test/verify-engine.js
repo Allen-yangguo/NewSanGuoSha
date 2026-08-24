@@ -228,67 +228,70 @@ function main() {
     assert(rChain.ok, 'A 连击第二次');
     engineChain.defenderPass();
     assert(engineChain.turn.activePlayer === fpC, 'A 第二次连击后仍保持攻击权');
-    console.log('\n=== 八卦阵反弹 · A 可出防具抵消并继续操作测试（新规则）===');
-    // 场景：A 攻击 B → B 出八卦阵 → 反弹给 A → A 可出防具抵消 → 结算后 A 继续行动
+    console.log('\n=== 八卦阵反弹 · 防具先抵消再反弹 + 嵌套反弹测试（新规则）===');
+    // 场景1：A 攻 3 → B 出皮甲-1 + 八卦阵 → 反弹剩余 2 点给 A → A 可出防具/再出八卦阵反击
+    // 场景2：嵌套反弹 —— B反弹给A后，A可以再出八卦阵反击回B
     const engineBg = new GameEngine_1.GameEngine();
     engineBg.initGame();
     const fpBg = engineBg.state.firstPlayer;
     const defBg = (1 - fpBg);
-    // 清空双方手牌，精确构造
     engineBg.state.players[fpBg].hand = [];
     engineBg.state.players[defBg].hand = [];
-    // A 拿一张士兵，B 拿一张八卦阵 + 一张皮甲（防御 1）
-    const soldierDefBg = buildFullDeck().find((c) => c.id === 'soldier_0');
+    // 找一张攻击力 3 的武将牌（不用士兵 1，这样 A攻3 B皮甲-1 八卦阵反弹2 更清晰）
+    const soldierDefBg = buildFullDeck().find((c) => c.id === 'soldier_0'); // 士兵 value=1 cost=1
+    const general3Def = buildFullDeck().find((c) => c.category === 'general' && c.value >= 3);
+    const atk3Def = general3Def || soldierDefBg;
     const baguaDef = buildFullDeck().find((c) => c.id === 'bagua_0');
-    const leatherDef = buildFullDeck().find((c) => c.id === 'leather_0');
-    engineBg.state.players[fpBg].hand.push({ uid: 'sa', def: soldierDefBg });
-    engineBg.state.players[defBg].hand.push({ uid: 'bg', def: baguaDef });
-    engineBg.state.players[fpBg].hand.push({ uid: 'la', def: leatherDef }); // A 自己也拿一张皮甲，用于抵消反弹
+    const leatherDef = buildFullDeck().find((c) => c.id === 'leather_0'); // 皮甲 value=1
+    // 构造一手牌：
+    // A(fpBg): 武将(3攻) + 皮甲 + 八卦阵
+    // B(defBg): 皮甲 + 八卦阵
+    engineBg.state.players[fpBg].hand.push({ uid: 'ga', def: atk3Def });
+    engineBg.state.players[fpBg].hand.push({ uid: 'la', def: leatherDef });
+    engineBg.state.players[fpBg].hand.push({ uid: 'bga', def: baguaDef });
+    engineBg.state.players[defBg].hand.push({ uid: 'lb', def: leatherDef });
+    engineBg.state.players[defBg].hand.push({ uid: 'bgb', def: baguaDef });
     engineBg.state.players[fpBg].qi = 10;
-    // A 攻击 B
-    let rBg = (0, CardEffect_1.applyCardEffect)(engineBg, { uid: 'sa', def: soldierDefBg }, fpBg);
-    assert(rBg.ok, 'A 打出士兵攻击 B');
+    const atk3Dmg = atk3Def.value; // 3 或士兵 1
+    // ========== 子测试 1：A 攻 → B 出皮甲 + 八卦阵 → 反弹 (atk-1) 伤害 ==========
+    let rBg = (0, CardEffect_1.applyCardEffect)(engineBg, { uid: 'ga', def: atk3Def }, fpBg);
+    assert(rBg.ok, 'A 打出武将攻击 B');
     assert(engineBg.turn.isAwaitingDefense(), '进入防御响应');
-    // B 打出八卦阵（打出后立即触发反弹结算，A 自动进入受击阶段）
-    rBg = (0, CardEffect_1.applyCardEffect)(engineBg, { uid: 'bg', def: baguaDef }, defBg);
-    assert(rBg.ok, 'B 打出八卦阵');
-    assert(rBg.triggeredReflect === true, '八卦阵生效');
-    // 八卦阵已自动结算：A 进入反弹受击阶段（无需 B 再点确认防御）
+    // B 先出皮甲抵消 1
+    rBg = (0, CardEffect_1.applyCardEffect)(engineBg, { uid: 'lb', def: leatherDef }, defBg);
+    assert(rBg.ok, 'B 先出皮甲 +1 防御池');
+    assert(engineBg.defensePool === 1, 'B 防御池 = 1');
+    // B 再出八卦阵 → 立即结算反弹 (伤害 - 防御池)
+    rBg = (0, CardEffect_1.applyCardEffect)(engineBg, { uid: 'bgb', def: baguaDef }, defBg);
+    assert(rBg.ok, 'B 打出八卦阵（皮甲后）');
+    assert(rBg.triggeredReflect === true, '八卦阵生效触发反弹');
+    const expectReflectDmg = Math.max(0, atk3Dmg - 1);
+    assert(engineBg.pendingAttack?.damage === expectReflectDmg, `反弹伤害 = 原伤害 ${atk3Dmg} - 皮甲1 = ${expectReflectDmg}，实际 ${engineBg.pendingAttack?.damage}`);
     assert(engineBg.turn.isAwaitingDefense(), '八卦阵反弹 · A 进入受击阶段');
-    assert(engineBg.pendingAttack?.isReflect === true, '反弹受击标记为 isReflect');
+    assert(engineBg.pendingAttack?.isReflect === true, '反弹标记 isReflect=true');
     assert(engineBg.pendingAttack?.defender === fpBg, '反弹受击方为 A');
-    assert(engineBg.pendingAttack?.attacker === defBg, '反弹攻击者为 B');
-    assert(engineBg.turn.activePlayer === fpBg, 'activePlayer 为 A（可出防具）');
-    // A 打出皮甲抵消 1 点反弹伤害
+    assert(engineBg.turn.activePlayer === fpBg, 'activePlayer = A');
+    // ========== 子测试 2：A 在反弹受击阶段允许再出八卦阵（嵌套反弹回 B）==========
+    const reflectDmg2A = engineBg.pendingAttack.damage; // 反弹到 A 的伤害值
+    // A 先出皮甲
     rBg = (0, CardEffect_1.applyCardEffect)(engineBg, { uid: 'la', def: leatherDef }, fpBg);
-    assert(rBg.ok, 'A 打出皮甲抵消反弹伤害');
-    assert(engineBg.defensePool === 1, '防具池 = 1');
-    // A 放弃防御，触发结算
-    const hpBefore = engineBg.state.players[fpBg].hp;
+    assert(rBg.ok, 'A 反弹阶段出皮甲 +1 防御池');
+    assert(engineBg.defensePool === 1, 'A 防御池 = 1');
+    // A 再出八卦阵 → 嵌套反弹回 B，伤害应为 (reflectDmg2A - 防御池1)
+    rBg = (0, CardEffect_1.applyCardEffect)(engineBg, { uid: 'bga', def: baguaDef }, fpBg);
+    assert(rBg.ok, 'A 在反弹受击阶段可以再出八卦阵（嵌套反弹）');
+    assert(rBg.triggeredReflect === true, '嵌套反弹生效');
+    const expectReflect2B = Math.max(0, reflectDmg2A - 1);
+    assert(engineBg.pendingAttack?.damage === expectReflect2B, `嵌套反弹伤害 = ${reflectDmg2A} - A皮甲1 = ${expectReflect2B}，实际 ${engineBg.pendingAttack?.damage}`);
+    assert(engineBg.pendingAttack?.defender === defBg, '嵌套反弹受击方为 B');
+    assert(engineBg.turn.activePlayer === defBg, 'activePlayer = B');
+    // B 无牌可出，直接确认防御
+    const hpBeforeB = engineBg.state.players[defBg].hp;
     rBg = engineBg.defenderPass();
-    // 反弹伤害 1 - 防御 1 = 0，A 不扣血
-    assert(engineBg.state.players[fpBg].hp === hpBefore, `反弹伤害被皮甲完全抵消 实际 hp ${engineBg.state.players[fpBg].hp} vs ${hpBefore}`);
-    // 结算后攻击权交给 A（原攻击方），可继续行动
-    assert(engineBg.turn.activePlayer === fpBg, `反弹结算后攻击权交回 A 实际玩家${engineBg.turn.activePlayer + 1}`);
-    assert(!engineBg.turn.isAwaitingDefense(), '已退出防御响应');
-    console.log('\n=== 反弹受击不可再出八卦阵测试 ===');
-    const engineBg2 = new GameEngine_1.GameEngine();
-    engineBg2.initGame();
-    const fp2 = engineBg2.state.firstPlayer;
-    const def2 = (1 - fp2);
-    engineBg2.state.players[fp2].hand = [];
-    engineBg2.state.players[def2].hand = [];
-    engineBg2.state.players[fp2].hand.push({ uid: 'sa2', def: soldierDefBg });
-    engineBg2.state.players[def2].hand.push({ uid: 'bg2', def: baguaDef });
-    engineBg2.state.players[fp2].hand.push({ uid: 'bg3', def: baguaDef }); // A 自己也拿一张八卦阵
-    engineBg2.state.players[fp2].qi = 10;
-    (0, CardEffect_1.applyCardEffect)(engineBg2, { uid: 'sa2', def: soldierDefBg }, fp2);
-    (0, CardEffect_1.applyCardEffect)(engineBg2, { uid: 'bg2', def: baguaDef }, def2);
-    // 八卦阵打出后立即自动结算，A 进入反弹受击阶段（无需 defenderPass）
-    // A 在反弹受击中尝试出八卦阵，应失败
-    const rBg2 = (0, CardEffect_1.applyCardEffect)(engineBg2, { uid: 'bg3', def: baguaDef }, fp2);
-    assert(!rBg2.ok, '反弹受击不可再出八卦阵');
-    assert(rBg2.message.includes('反弹'), `错误消息含「反弹」实际 "${rBg2.message}"`);
+    assert(rBg.ok, 'B 确认防御（承受嵌套反弹伤害）');
+    const hpAfterB = engineBg.state.players[defBg].hp;
+    assert(hpAfterB === Math.max(0, hpBeforeB - expectReflect2B), `B 实际扣血 ${hpBeforeB - hpAfterB}，应扣 ${expectReflect2B}（hp ${hpAfterB}）`);
+    assert(!engineBg.turn.isAwaitingDefense(), '结算完毕已退出防御响应');
     console.log('\n=== 绝杀击杀不可急救测试 ===');
     const engine2 = new GameEngine_1.GameEngine();
     engine2.initGame();

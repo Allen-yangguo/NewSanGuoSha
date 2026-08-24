@@ -289,19 +289,16 @@ class GameEngine {
             if (this.pendingAttack?.defender !== actor)
                 return { ok: false, message: '非防御方' };
             if (this.baguaTriggered)
-                return { ok: false, message: '本回合已打出八卦阵' };
+                return { ok: false, message: '本防御阶段已打出八卦阵' };
             // 无法反弹绝杀/倚天剑
             if (this.pendingAttack?.source === 'ultimate') {
                 return { ok: false, message: '八卦阵无法反弹绝杀' };
             }
-            // 反弹受击不可再出八卦阵（八卦阵不可嵌套反弹）
-            if (this.pendingAttack?.isReflect) {
-                return { ok: false, message: '反弹伤害不可再出八卦阵' };
-            }
+            // 注意：八卦阵允许嵌套反弹（A→B 八卦阵→A 还能再八卦阵→B）
             this.baguaTriggered = true;
             this.usedBaguaCards.push(card);
             this.consumeCard(actor, card);
-            this.log(`玩家${actor + 1} 打出【八卦阵】· 将全额反弹武将伤害`);
+            this.log(`玩家${actor + 1} 打出【八卦阵】· 将反弹剩余伤害`);
             // 立即结算反弹（不再需要防御方点「确认防御」）
             const r = this.resolvePendingAttack();
             return { ok: true, message: r.message || '八卦阵反弹生效', triggeredReflect: true };
@@ -334,16 +331,30 @@ class GameEngine {
         this.pendingAttack = null;
         this.turn.exitDefenseResponse();
         if (this.baguaTriggered) {
-            // 八卦阵反弹：将原攻击者转为受击方，A 可出防具抵消（但不可再出八卦阵）
-            this.log(`八卦阵反弹 ${atk.damage} 点伤害至玩家${atk.attacker + 1} · A 可出防具抵消`);
+            // 八卦阵反弹：防具先抵消，再将剩余伤害反弹回原攻击者
+            // 例：A 攻 3，B 出防具-1 再八卦阵 → 反弹 2 点给 A
+            const reflectDamage = Math.max(0, atk.damage - this.defensePool);
+            this.log(`八卦阵反弹：${atk.damage} - 防具 ${this.defensePool} = 剩余 ${reflectDamage} → 反弹至玩家${atk.attacker + 1}`);
             this.usedBaguaCards = [];
             this.usedArmorCards = [];
             this.baguaTriggered = false;
             this.defensePool = 0;
-            // 构造反弹 pendingAttack：攻击者为 B（原防御方），防御者为 A（原攻击方），标记为反弹
-            // 反弹伤害仍视为 general 来源（武将伤害），便于急救规则
+            if (reflectDamage <= 0) {
+                // 防具已完全抵消，反弹 0 伤害 = 无事发生，直接结束防御
+                this.log(`反弹伤害为 0 · 无需结算`);
+                if (atk.isReflect) {
+                    this.turn.setActivePlayer(atk.defender);
+                    this.log(`嵌套反弹结算完成 · 攻击权交回玩家${atk.defender + 1}`);
+                }
+                else {
+                    this.switchActiveAfterAttackResolve(atk.attacker, atk.defender);
+                }
+                return { ok: true, message: `防具完全抵消 · 反弹 0 伤害`, triggeredReflect: true };
+            }
+            // 构造反弹 pendingAttack：攻击者为原防御方，防御者为原攻击方；标记为反弹
+            // 八卦阵允许嵌套反弹（A 可以再出八卦阵反击回 B），所以 isReflect 仅用于结算后攻击权切换判断
             this.pendingAttack = {
-                damage: atk.damage,
+                damage: reflectDamage,
                 source: 'general',
                 isYiTianJian: false,
                 attacker: atk.defender,
@@ -351,10 +362,10 @@ class GameEngine {
                 sourceCardUid: atk.sourceCardUid,
                 isReflect: true,
             };
-            // 切换 activePlayer 为 A（受击方），A 进入防御响应阶段
+            // 切换 activePlayer 为受击方，进入防御响应阶段
             this.turn.setActivePlayer(atk.attacker);
             this.turn.enterDefenseResponse();
-            return { ok: true, message: `八卦阵反弹 ${atk.damage} 伤害 · 玩家${atk.attacker + 1} 可出防具`, triggeredReflect: true };
+            return { ok: true, message: `八卦阵反弹 ${reflectDamage} 伤害 · 玩家${atk.attacker + 1} 可出防具/八卦阵`, triggeredReflect: true };
         }
         // 普通结算：伤害 - 防御池
         const finalDamage = Math.max(0, atk.damage - this.defensePool);

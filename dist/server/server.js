@@ -140,6 +140,7 @@ function buildRoomState(socketId) {
     const defensePid = room.engine.turn.isAwaitingDefense() && room.engine.pendingAttack
         ? room.engine.pendingAttack.defender
         : null;
+    const isReflect = room.engine.turn.isAwaitingDefense() && room.engine.pendingAttack?.isReflect === true;
     return {
         roomId: ROOM_ID,
         started: room.started,
@@ -149,6 +150,7 @@ function buildRoomState(socketId) {
         turnPhase: room.engine.turn.phase,
         activePid: room.engine.turn.activePlayer,
         defensePid,
+        isReflect,
         emergencyHealPid: room.engine.emergencyHealPending,
         firstPlayerPid: room.engine.state.firstPlayer,
         deckCount: room.engine.state.deck.length,
