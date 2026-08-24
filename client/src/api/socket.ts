@@ -5,6 +5,7 @@
  */
 import { io, Socket } from 'socket.io-client';
 import type { ClientEvents, ServerEvents } from '../types/protocol';
+import { currentToken } from '../store/authStore';
 
 let _socket: (Socket<ServerEvents, ClientEvents> & { _inited?: boolean }) | null = null;
 
@@ -18,6 +19,8 @@ export function getSocket(): Socket<ServerEvents, ClientEvents> {
     reconnection: true,
     reconnectionAttempts: 20,
     reconnectionDelay: 1500,
+    // 每次连接(含断线重连)动态读取最新 token,实例复用不丢监听器
+    auth: (cb: (data: object) => void) => cb({ token: currentToken() || '' }),
   }) as any;
   return _socket!;
 }

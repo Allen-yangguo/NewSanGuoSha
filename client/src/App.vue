@@ -13,8 +13,18 @@
       <div v-for="(t, i) in toastLogs" :key="i" class="toast">{{ t }}</div>
     </div>
 
-    <!-- 0) 入口选择页 -->
-    <EntryScreen v-if="gameMode === 'none'" @select="onSelectMode" />
+    <!-- 认证页:未登录 -->
+    <AuthScreen v-if="authReady && !authed" />
+    <!-- 登录态恢复中 -->
+    <div v-else-if="!authReady" style="flex:1;display:flex;align-items:center;justify-content:center;color:#8E734F;">加载中...</div>
+    <!-- 已登录未选模式 → 入口选择页(带身份栏) -->
+    <template v-else-if="gameMode === 'none'">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;gap:8px;">
+        <span style="font-size:12px;color:#8E734F;">👤 {{ displayName }}</span>
+        <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="onLogout">退出登录</button>
+      </div>
+      <EntryScreen @select="onSelectMode" />
+    </template>
 
     <!-- 局域网大厅（选了局域网但还没加入房间） -->
     <LobbyScreen v-else-if="gameMode === 'lan' && !state.yourSlot" @exit="exitToEntry" />
@@ -225,6 +235,7 @@ import PlayerPanel from './components/PlayerPanel.vue';
 import GameCard from './components/GameCard.vue';
 import PlayedCardsZone from './components/PlayedCardsZone.vue';
 import EntryScreen from './components/EntryScreen.vue';
+import AuthScreen from './components/AuthScreen.vue';
 import VictoryAnim from './components/VictoryAnim.vue';
 import DefeatAnim from './components/DefeatAnim.vue';
 import { soundManager } from './audio/SoundManager';
@@ -235,6 +246,7 @@ import {
   useBonus, confirmDefend, giveUpHeal, endAction, playCard, resetRoom,
   ultimateAnimating, gameOverAnimating,
 } from './store/gameStore';
+import { authed, authUser, logout, restoreAuth } from './store/authStore';
 import type { CardView, CardCategory } from './types/protocol';
 
 // ===== 模式选择 =====
@@ -402,7 +414,23 @@ function boostBadge(c: CardView): number | undefined {
 
 // 出牌函数已在 onCardClick 中调用
 
-onMounted(() => {
+// ===== 用户认证态 =====
+const authReady = ref(false);
+const displayName = computed(() => {
+  const u = authUser.value;
+  if (!u) return '';
+  if (u.role === 'guest') return '游客';
+  return u.phone || '用户';
+});
+
+function onLogout(): void {
+  logout();
+  exitToEntry();
+}
+
+onMounted(async () => {
+  await restoreAuth();
+  authReady.value = true;
   // 首次用户交互时初始化音效（浏览器自动播放策略要求）
   const initAudioOnce = () => {
     soundManager.init();

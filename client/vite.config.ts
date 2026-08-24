@@ -22,6 +22,10 @@ export default defineConfig({
         ws: true,
         changeOrigin: true,
       },
+      '/api': {
+        target: 'http://127.0.0.1:3000',
+        changeOrigin: true,
+      },
       '/__qr': { target: 'http://127.0.0.1:3000', changeOrigin: true },
       '/__qr_data': { target: 'http://127.0.0.1:3000', changeOrigin: true },
     },

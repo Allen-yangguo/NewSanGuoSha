@@ -14,6 +14,11 @@ NUL
 # SSH 临时密钥
 .ssh-temp/
 
+# 用户数据库与密钥
+data/
+.env
+.env.local
+
 # IDE
 .vscode/
 .idea/

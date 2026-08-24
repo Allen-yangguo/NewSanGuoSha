@@ -30,6 +30,9 @@ import {
   FormationType,
 } from '../assets/scripts/core/types';
 import { HP_MAX } from '../assets/scripts/core/BattleState';
+import { createAuthRouter } from './auth/routes';
+import { verifyToken } from './auth/authService';
+import { getDb } from './auth/db';
 
 // ============================================================
 // 配置
@@ -65,6 +68,8 @@ interface PlayerSlot {
   socketId: string | null;
   pid: PlayerId;
   name: string;
+  /** 登录用户稳定标识(正式用户 u<id>,游客 g<hex>);用于断线重连按身份恢复槽位 */
+  userId: string | null;
 }
 interface Room {
   engine: GameEngine;
@@ -76,8 +81,8 @@ const room: Room = {
   engine: new GameEngine(),
   started: false,
   players: {
-    p1: { socketId: null, pid: 0, name: '玩家1（先手方）' },
-    p2: { socketId: null, pid: 1, name: '玩家2（后手方）' },
+    p1: { socketId: null, pid: 0, name: '玩家1（先手方）', userId: null },
+    p2: { socketId: null, pid: 1, name: '玩家2（后手方）', userId: null },
   },
   spectators: [],
 };
@@ -277,6 +282,9 @@ function tryAutoEndAction(io: IOServer, room: Room): void {
 // ============================================================
 const app = express();
 app.use(cors());
+app.use(express.json());
+// 用户认证 REST 接口
+app.use('/api/auth', createAuthRouter());
 
 // 静态托管：基于 process.cwd() 解析 client/dist，兼容 ts-node 和编译后运行
 // ts-node 运行 server/server.ts 时 cwd 是项目根
@@ -313,6 +321,16 @@ const io = new IOServer(server, {
   cors: { origin: '*' },
 });
 
+// 连接鉴权：必须携带有效 JWT（正式用户或游客），否则拒绝连接
+io.use((socket: Socket, next) => {
+  const token = (socket.handshake.auth as any)?.token as string | undefined;
+  if (!token) return next(new Error('未登录'));
+  const payload = verifyToken(token);
+  if (!payload) return next(new Error('登录已过期'));
+  (socket.data as any).auth = payload;
+  next();
+});
+
 // ============================================================
 // Socket 事件处理
 // ============================================================
@@ -322,17 +340,31 @@ io.on('connection', (socket: Socket) => {
   // ---------- joinRoom：客户端加入房间（分配 p1/p2 槽）----------
   socket.on('joinRoom', (payload: { roomId?: string; name?: string; preferSlot?: Slot } = {}, ack) => {
     const cb: (ok: boolean, data: any) => void = typeof ack === 'function' ? ack : () => {};
-    // 如果这 socket 原本在某个槽（同 socketId 重连），先清掉旧的
+    const auth = (socket.data as any).auth as { uid: string; phone?: string; role: string } | undefined;
+    const userId = auth?.uid ?? null;
+    // 清理同 socketId / 同 userId 的旧占用(只清 socketId,保留 userId 以便按身份恢复)
     for (const s of ['p1', 'p2'] as Slot[]) {
-      if (room.players[s].socketId === socket.id) room.players[s].socketId = null;
+      const slot = room.players[s];
+      if (slot.socketId === socket.id || (userId && slot.userId === userId)) {
+        slot.socketId = null;
+      }
     }
 
-    // 优先尝试恢复到 preferSlot（客户端 localStorage 记录的槽位）
     let mySlot: Slot | null = null;
-    if (payload?.preferSlot && !room.players[payload.preferSlot].socketId) {
+    // 1) 按 userId 恢复(服务端身份重连,比 localStorage 槽位更可靠)
+    if (userId) {
+      for (const s of ['p1', 'p2'] as Slot[]) {
+        if (room.players[s].userId === userId && !room.players[s].socketId) {
+          mySlot = s;
+          break;
+        }
+      }
+    }
+    // 2) 按 preferSlot（客户端 localStorage 记录的槽位）
+    if (!mySlot && payload?.preferSlot && !room.players[payload.preferSlot].socketId) {
       mySlot = payload.preferSlot;
     }
-    // 否则找空槽：优先 p1，再 p2
+    // 3) 否则找空槽：优先 p1，再 p2
     if (!mySlot) {
       if (!room.players.p1.socketId) mySlot = 'p1';
       else if (!room.players.p2.socketId) mySlot = 'p2';
@@ -342,6 +374,7 @@ io.on('connection', (socket: Socket) => {
       return;
     }
     room.players[mySlot].socketId = socket.id;
+    room.players[mySlot].userId = userId;
     if (payload?.name) room.players[mySlot].name = payload.name;
     socket.join(ROOM_ID);
     console.log(`[IO] ${socket.id} 加入房间 -> ${mySlot} (pid=${room.players[mySlot].pid})${room.started ? ' · 重连' : ''}`);
@@ -582,6 +615,8 @@ io.on('connection', (socket: Socket) => {
         room.started = false;
         room.engine = new GameEngine();
         room.engine.initGame();
+        room.players.p1.userId = null;
+        room.players.p2.userId = null;
         console.log('[IO] 所有玩家离线 · 房间已重置');
       }
       broadcastRoomState(io);
@@ -599,6 +634,8 @@ function getPidBySocket(socketId: string): PlayerId | null {
 // 启动
 // ============================================================
 async function main() {
+  // 初始化用户数据库(建表)
+  getDb();
   const ip = getLanIp();
   const lanUrl = `http://${ip}:${PORT}`;
   server.listen(PORT, BIND_HOST, async () => {
