@@ -440,6 +440,7 @@ io.on('connection', (socket: Socket) => {
         triggeredHeal: !!r.triggeredHeal,
         triggeredQi: !!r.triggeredQi,
         triggeredUltimate: !!r.triggeredUltimate,
+        triggeredCharm: !!r.triggeredCharm,
       },
       attackPower,
     });

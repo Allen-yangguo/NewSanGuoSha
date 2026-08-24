@@ -191,8 +191,14 @@
       </div>
     </div>
 
-    <!-- 绝杀过场动画 -->
+    <!-- 绝杀过场动画:剑劈屏幕 + 闪电闪烁 -->
     <div class="ultimate-overlay" v-if="ultimateAnimating">
+      <svg class="ult-lightning" viewBox="0 0 400 600" preserveAspectRatio="none">
+        <path class="bolt bolt1" d="M200 0 L168 150 L212 170 L156 320 L208 340 L140 600" />
+        <path class="bolt bolt2" d="M270 0 L244 130 L284 150 L226 300 L266 320 L196 600" />
+      </svg>
+      <div class="ult-crack"></div>
+      <div class="ult-slash"></div>
       <div class="ultimate-text">绝杀</div>
     </div>
 
@@ -210,6 +216,7 @@
         <div class="gameover-desc">{{ state.gameOverDetail }}</div>
         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
           <button class="btn primary" @click="resetRoom">再来一局</button>
+          <button class="btn dark" @click="exitToEntry">休息去了</button>
         </div>
       </div>
     </div>
@@ -229,7 +236,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import LobbyScreen from './components/LobbyScreen.vue';
 import PlayerPanel from './components/PlayerPanel.vue';
 import GameCard from './components/GameCard.vue';
@@ -427,6 +434,18 @@ function onLogout(): void {
   logout();
   exitToEntry();
 }
+
+// ===== 无牌自动结束行动(免点结束按钮) =====
+const autoEndedFlag = ref(false);
+watch(() => state.you.handCards.length, (n) => {
+  // 轮到我行动且手牌空 → 自动结束行动
+  if (n === 0 && canEndTurn.value && !autoEndedFlag.value) {
+    autoEndedFlag.value = true;
+    endAction();
+  } else if (n > 0) {
+    autoEndedFlag.value = false;
+  }
+});
 
 onMounted(async () => {
   await restoreAuth();

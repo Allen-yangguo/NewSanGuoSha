@@ -4,8 +4,15 @@
 -->
 <template>
   <div class="p-panel" :class="me ? 'me' : 'opp'" v-if="player">
-    <div class="avatar" :class="me ? '' : 'opp'">
-      {{ me ? '我' : (player.pid + 1) }}
+    <div class="avatar-wrap">
+      <div class="avatar" :class="me ? '' : 'opp'">
+        {{ me ? '我' : (player.pid + 1) }}
+      </div>
+      <!-- 头像旁手牌数徽章 -->
+      <div class="hand-badge" :class="me ? 'me' : 'opp'">
+        <span class="hand-badge-num">{{ player.handCount }}</span>
+        <span class="hand-badge-label">牌</span>
+      </div>
     </div>
     <div class="meta">
       <div class="row-name">
@@ -49,8 +56,6 @@
       </div>
     </div>
     <div class="side-info">
-      <div class="hand-count">{{ player.handCount }}</div>
-      <div style="font-size:10px;color:#8E734F;">手牌</div>
       <div style="margin-top:6px;font-size:11px;">
         <span v-if="player.usedNormalQi" style="color:#8C4A40">普补已用</span><br/>
         <span v-if="player.usedBigQi" style="color:#8C4A40">大补已用</span>

@@ -18,9 +18,42 @@
       ]"
     >
       <span class="pc-title">{{ c.card.name }}</span>
-      <span class="pc-num">{{ c.card.value }}</span>
+      <!-- 八卦阵：绘制太极八卦图，去掉中间的 0 -->
+      <span v-if="c.card.id === 'bagua'" class="pc-bagua" aria-label="八卦">
+        <svg viewBox="0 0 40 40" class="bagua-svg">
+          <!-- 外圈八卦爻 -->
+          <g class="trigrams" fill="none" stroke="#2F4644" stroke-width="1.4">
+            <!-- 乾 ☰ -->
+            <g transform="translate(20,20) rotate(0)"><line x1="-3" y1="-13" x2="3" y2="-13"/><line x1="-3" y1="-10.5" x2="3" y2="-10.5"/><line x1="-3" y1="-8" x2="3" y2="-8"/></g>
+            <!-- 兑 ☱ -->
+            <g transform="translate(20,20) rotate(45)"><line x1="-3" y1="-13" x2="3" y2="-13"/><line x1="1" y1="-10.5" x2="3" y2="-10.5"/><line x1="-3" y1="-8" x2="3" y2="-8"/></g>
+            <!-- 离 ☲ -->
+            <g transform="translate(20,20) rotate(90)"><line x1="-3" y1="-13" x2="3" y2="-13"/><line x1="-0.6" y1="-10.5" x2="0.6" y2="-10.5"/><line x1="-3" y1="-8" x2="3" y2="-8"/></g>
+            <!-- 震 ☳ -->
+            <g transform="translate(20,20) rotate(135)"><line x1="-3" y1="-13" x2="3" y2="-13"/><line x1="-3" y1="-10.5" x2="-1" y2="-10.5"/><line x1="1" y1="-10.5" x2="3" y2="-10.5"/><line x1="-3" y1="-8" x2="3" y2="-8"/></g>
+            <!-- 坤 ☷ -->
+            <g transform="translate(20,20) rotate(180)"><line x1="-3" y1="-13" x2="-1" y2="-13"/><line x1="1" y1="-13" x2="3" y2="-13"/><line x1="-3" y1="-10.5" x2="-1" y2="-10.5"/><line x1="1" y1="-10.5" x2="3" y2="-10.5"/><line x1="-3" y1="-8" x2="-1" y2="-8"/><line x1="1" y1="-8" x2="3" y2="-8"/></g>
+            <!-- 艮 ☶ -->
+            <g transform="translate(20,20) rotate(225)"><line x1="-3" y1="-13" x2="-1" y2="-13"/><line x1="1" y1="-13" x2="3" y2="-13"/><line x1="-0.6" y1="-10.5" x2="0.6" y2="-10.5"/><line x1="-3" y1="-8" x2="-1" y2="-8"/><line x1="1" y1="-8" x2="3" y2="-8"/></g>
+            <!-- 坎 ☵ -->
+            <g transform="translate(20,20) rotate(270)"><line x1="-3" y1="-13" x2="-1" y2="-13"/><line x1="1" y1="-13" x2="3" y2="-13"/><line x1="-3" y1="-10.5" x2="3" y2="-10.5"/><line x1="-3" y1="-8" x2="-1" y2="-8"/><line x1="1" y1="-8" x2="3" y2="-8"/></g>
+            <!-- 巽 ☴ -->
+            <g transform="translate(20,20) rotate(315)"><line x1="-3" y1="-13" x2="3" y2="-13"/><line x1="-3" y1="-10.5" x2="-1" y2="-10.5"/><line x1="1" y1="-10.5" x2="3" y2="-10.5"/><line x1="-3" y1="-8" x2="3" y2="-8"/></g>
+          </g>
+          <!-- 太极图 -->
+          <g class="taiji">
+            <circle cx="20" cy="20" r="5" fill="#FFFFFF" stroke="#2F4644" stroke-width="0.6"/>
+            <path d="M20 15 A5 5 0 0 1 20 25 A2.5 2.5 0 0 1 20 20 A2.5 2.5 0 0 0 20 15 Z" fill="#2F4644"/>
+            <circle cx="20" cy="17.5" r="0.7" fill="#FFFFFF"/>
+            <circle cx="20" cy="22.5" r="0.7" fill="#2F4644"/>
+          </g>
+        </svg>
+      </span>
+      <span v-else-if="c.card.category === 'formation'" class="pc-num">阵</span>
+      <span v-else-if="c.card.category === 'charm'" class="pc-num">惑</span>
+      <span v-else class="pc-num">{{ c.card.value }}</span>
       <span class="pc-cat">{{ catLabel(c.card.category) }}</span>
-      <span class="pc-atk" v-if="c.attackPower !== undefined">+{{ c.attackPower }}</span>
+      <span class="pc-atk" v-if="c.attackPower !== undefined">×{{ c.attackPower }}</span>
     </div>
     <div class="clear-hint" v-if="cards.length >= 6">再出 {{ 9 - cards.length }} 张清空</div>
   </div>
@@ -49,6 +82,7 @@ const CAT_LABELS: Record<string, string> = {
   strategy: '兵法',
   ultimate: '绝杀',
   formation: '阵法',
+  charm: '魅惑',
 };
 function catLabel(cat: string): string {
   return CAT_LABELS[cat] || cat;
@@ -121,9 +155,13 @@ function catLabel(cat: string): string {
 .cat-strategy    { background: linear-gradient(180deg, #E8D9BC 0%, #D1B883 100%); border-color: #4B3B2A; color: #2E2417; }
 .cat-ultimate    { background: linear-gradient(180deg, #2A1A16 0%, #120B09 100%); border-color: #C9A227; color: #E8C66E; }
 .cat-formation   { background: linear-gradient(180deg, #DAE3E1 0%, #BFCFCC 100%); border-color: #344240; color: #2F4644; }
+.cat-charm       { background: linear-gradient(180deg, #F5DCE6 0%, #E0A8C6 100%); border-color: #8C4A6E; color: #5C2A4E; }
 
 .pc-title { font-size: 9px; line-height: 1.1; text-align: center; padding: 0 2px; }
 .pc-num   { font-size: 22px; line-height: 1; }
+.pc-bagua { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; }
+.bagua-svg { width: 36px; height: 36px; animation: baguaSpin 12s linear infinite; }
+@keyframes baguaSpin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 .pc-cat   { font-size: 8px; opacity: 0.7; }
 
 /* 结算攻击力 — 右上角金色徽章 */

@@ -39,7 +39,8 @@ export type CardCategory =
   | 'function_hp'
   | 'strategy'
   | 'ultimate'
-  | 'formation';
+  | 'formation'
+  | 'charm';
 
 export interface PlayerView {
   pid: PlayerId;
@@ -104,6 +105,7 @@ export interface ServerEvents {
       triggeredHeal: boolean;
       triggeredQi: boolean;
       triggeredUltimate: boolean;
+      triggeredCharm: boolean;
     };
   }) => void;
   eventDamage: (data: { actorPid?: PlayerId; message: string }) => void;

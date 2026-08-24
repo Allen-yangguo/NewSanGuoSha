@@ -23,6 +23,8 @@ export interface EffectResult {
   triggeredQi?: boolean;
   /** 是否打出了绝杀 */
   triggeredUltimate?: boolean;
+  /** 是否打出了魅惑牌 */
+  triggeredCharm?: boolean;
 }
 
 /** 单卡效果函数签名 */
@@ -58,9 +60,14 @@ const handleUltimate: EffectHandler = (engine, card, actor) => {
   return engine.playUltimate(card, actor);
 };
 
-/** 阵法：八卦阵受击反弹 / 追风阵篡改先手 */
+/** 阵法：八卦阵受击反弹 / 追风阵篡改先手 / 龟背阵减攻 */
 const handleFormation: EffectHandler = (engine, card, actor) => {
   return engine.playFormation(card, actor);
+};
+
+/** 魅惑：对方兵法层 -1，为 0 则对方 -3 气 */
+const handleCharm: EffectHandler = (engine, card, actor) => {
+  return engine.playCharm(card, actor);
 };
 
 /** 分发表：按卡牌类别路由到对应处理函数 */
@@ -72,6 +79,7 @@ const dispatchTable: Record<CardCategory, EffectHandler> = {
   [CardCategory.Strategy]:   handleStrategy,
   [CardCategory.Ultimate]:   handleUltimate,
   [CardCategory.Formation]:  handleFormation,
+  [CardCategory.Charm]:      handleCharm,
 };
 
 /**

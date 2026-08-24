@@ -40,7 +40,7 @@ let ultimateTimer: ReturnType<typeof setTimeout> | null = null;
 function triggerUltimateAnim(): void {
   if (ultimateTimer) clearTimeout(ultimateTimer);
   ultimateAnimating.value = true;
-  ultimateTimer = setTimeout(() => { ultimateAnimating.value = false; }, 1500);
+  ultimateTimer = setTimeout(() => { ultimateAnimating.value = false; }, 2000);
 }
 
 /** 胜负过场动画（触发后 3s 自动关闭，给旗帜/跪地动画完整播放时间） */
@@ -52,7 +52,7 @@ let gameOverDelayTimer: ReturnType<typeof setTimeout> | null = null;
 function triggerGameOverAnim(): void {
   if (gameOverTimer) clearTimeout(gameOverTimer);
   gameOverAnimating.value = true;
-  gameOverTimer = setTimeout(() => { gameOverAnimating.value = false; }, 3000);
+  gameOverTimer = setTimeout(() => { gameOverAnimating.value = false; }, 5000);
 }
 /** 延迟触发胜负动画：先等 1.5s 让玩家看清最后出牌，再播动画 */
 function triggerGameOverWithDelay(winner: number | null): void {
@@ -107,6 +107,7 @@ function sfxForCard(category: string): SfxType {
     case 'strategy':      return 'strategy';
     case 'formation':     return 'formation';
     case 'ultimate':      return 'ultimate';
+    case 'charm':         return 'strategy';
     default:              return 'play';
   }
 }
@@ -137,7 +138,7 @@ export const state = reactive<RoomStateView>({
 
 function emptyPlayer(pid: PlayerId, name: string): any {
   return {
-    pid, name, hp: 6, hpMax: 10, qi: 6,
+    pid, name, hp: 8, hpMax: 12, qi: 6,
     handCount: 0, handCards: [], strategies: [],
     usedNormalQi: false, usedBigQi: false,
   };

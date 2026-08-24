@@ -382,7 +382,36 @@ export class LocalEngine {
       }
     }
 
-    // 5. 气量充足时打兵法牌
+    // 5. 有魅惑牌 → 对方有兵法层时削弱，或对方气高时扣气
+    const charm = hand.find((c: CardInstance) => c.def.category === CardCategory.Charm);
+    if (charm) {
+      const oppStratLayers = opp.strategies.reduce(
+        (sum: number, s: StrategyRecord) => sum + s.layers, 0);
+      if (oppStratLayers > 0 || opp.qi >= 4) {
+        const r = applyCardEffect(this.engine, charm, AI_PID);
+        if (r.ok) {
+          this.firePlayCardEvent(AI_PID, charm, r);
+          this.pushState();
+          this.maybeScheduleAI();
+          return;
+        }
+      }
+    }
+
+    // 6. 有龟背阵且对方有武将牌 → 打出减伤
+    const guibei = hand.find((c: CardInstance) =>
+      c.def.category === CardCategory.Formation && c.def.subtype === FormationType.GuiBei);
+    if (guibei && this.engine.hasGeneralInHand(HUMAN_PID)) {
+      const r = applyCardEffect(this.engine, guibei, AI_PID);
+      if (r.ok) {
+        this.firePlayCardEvent(AI_PID, guibei, r);
+        this.pushState();
+        this.maybeScheduleAI();
+        return;
+      }
+    }
+
+    // 7. 气量充足时打兵法牌
     if (ai.qi >= 3) {
       const strat = hand.find((c: CardInstance) => c.def.category === CardCategory.Strategy);
       if (strat) {
@@ -396,7 +425,7 @@ export class LocalEngine {
       }
     }
 
-    // 6. 气量不足但有补气按钮
+    // 8. 气量不足但有补气按钮
     if (!ai.usedNormalQi) {
       const r = this.engine.useNormalQiButton(AI_PID);
       if (r.ok) {
@@ -418,7 +447,7 @@ export class LocalEngine {
       }
     }
 
-    // 7. 无法出牌 → 结束行动
+    // 9. 无法出牌 → 结束行动
     const r = this.engine.endActionPhase();
     if (r.ok) {
       this.pushState();
@@ -562,7 +591,7 @@ export class LocalEngine {
       pid: p.id,
       name: p.id === HUMAN_PID ? '我' : 'AI 对手',
       hp: p.hp,
-      hpMax: 10,
+      hpMax: 12,
       qi: p.qi,
       handCount: p.hand.length,
       handCards: showHand ? p.hand.map(c => this.mapCard(c)) : [],
@@ -667,6 +696,7 @@ export class LocalEngine {
       case 'strategy':      return 'strategy';
       case 'formation':     return 'formation';
       case 'ultimate':      return 'ultimate';
+      case 'charm':         return 'strategy';
       default:              return 'play';
     }
   }

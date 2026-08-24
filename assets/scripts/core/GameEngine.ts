@@ -17,6 +17,7 @@ import {
   UltimateType,
   FormationType,
   StrategyType,
+  CharmType,
   BattleState,
 } from './types';
 import { GameState } from './GameState';
@@ -28,6 +29,7 @@ import {
   calcGeneralDamage,
   tickStrategies,
   totalStrategyLayers,
+  removeStrategyLayer,
   getStateBonus,
   getBattleState,
 } from './BattleState';
@@ -65,6 +67,8 @@ export class GameEngine {
   usedArmorCards: CardInstance[] = [];
   /** 当前防御响应中已使用的八卦阵卡（用于弃牌） */
   usedBaguaCards: CardInstance[] = [];
+  /** 龟背阵保护方（本回合该玩家受到武将攻击时伤害 -1，回合结束清除） */
+  guiBeiProtector: PlayerId | null = null;
   /** 紧急救血等待中（普通攻击打至 0 血，可补血续命） */
   emergencyHealPending: PlayerId | null = null;
   /** 历史日志（用于 UI 显示与调试） */
@@ -165,9 +169,16 @@ export class GameEngine {
       return { ok: false, message: `气量不足：需要 ${cost}，当前 ${attacker.qi}` };
     }
     attacker.qi -= cost;
-    const damage = calcGeneralDamage(card.def, attacker);
+    const baseDamage = calcGeneralDamage(card.def, attacker);
     const stateBonus = getStateBonus(attacker);
     const stratLayers = totalStrategyLayers(attacker);
+    // 龟背阵：若防御方有龟背保护，武将攻击伤害 -1（最低 0），绝杀不受影响
+    const defenderId = (1 - actor) as PlayerId;
+    let damage = baseDamage;
+    if (this.guiBeiProtector === defenderId) {
+      damage = Math.max(0, damage - 1);
+      this.log(`龟背阵生效 · 武将攻击伤害 -1 → ${damage}`);
+    }
     this.log(
       `玩家${actor + 1} 打出【${card.def.name}】耗气 ${cost} → 伤害 ${damage} ` +
       `(基础${card.def.value}+兵法${stratLayers}+状态${stateBonus})`,
@@ -175,7 +186,6 @@ export class GameEngine {
     this.consumeCard(actor, card);
 
     // 设置待结算攻击，进入防御响应
-    const defenderId = (1 - actor) as PlayerId;
     this.pendingAttack = {
       damage,
       source: 'general',
@@ -360,7 +370,38 @@ export class GameEngine {
       return { ok: true, message: '追风阵生效 · 下回合仍为先手' };
     }
 
+    if (type === FormationType.GuiBei) {
+      // 龟背阵：自身回合打出，本回合对方武将攻击 -1
+      if (!this.canAct(actor)) return { ok: false, message: '非己方行动阶段' };
+      if (this.turn.isAwaitingDefense()) return { ok: false, message: '当前正在等待防御响应' };
+      this.guiBeiProtector = actor;
+      this.log(`玩家${actor + 1} 打出【龟背阵】· 本回合对方武将攻击 -1 · 绝杀不受影响`);
+      this.consumeCard(actor, card);
+      return { ok: true, message: '龟背阵生效 · 本回合对方武将攻击 -1' };
+    }
+
     return { ok: false, message: '未知阵法' };
+  }
+
+  /** 魅惑：对方兵法层 -1，若为 0 则对方 -3 气 */
+  playCharm(card: CardInstance, actor: PlayerId): EffectResult {
+    if (!this.canAct(actor)) return { ok: false, message: '非己方行动阶段' };
+    if (card.def.category !== CardCategory.Charm) return { ok: false, message: '非魅惑牌' };
+    if (this.turn.isAwaitingDefense()) return { ok: false, message: '当前正在等待防御响应' };
+    const targetId = (1 - actor) as PlayerId;
+    const target = this.state.players[targetId];
+    const totalLayers = totalStrategyLayers(target);
+    this.consumeCard(actor, card);
+    if (totalLayers > 0) {
+      removeStrategyLayer(target);
+      const remain = totalStrategyLayers(target);
+      this.log(`玩家${actor + 1} 打出【${card.def.name}】· 对方兵法 -1 层 → 剩余 ${remain}`);
+      return { ok: true, message: `对方兵法 -1 层 · 剩余 ${remain}`, triggeredCharm: true };
+    } else {
+      target.qi = Math.max(0, target.qi - 3);
+      this.log(`玩家${actor + 1} 打出【${card.def.name}】· 对方兵法为 0 · 对方 -3 气 → ${target.qi}`);
+      return { ok: true, message: `对方兵法为 0 · 对方 -3 气`, triggeredCharm: true, triggeredQi: true };
+    }
   }
 
   // ============ 防御响应 ============
@@ -616,7 +657,9 @@ export class GameEngine {
       // 兵法倒计时 -1
       tickStrategies(p);
     }
-    this.log(`回合结算 · ${qiRecovery ? '双方各 +1 气 · ' : ''}兵法倒计时 -1`);
+    // 龟背阵效果本回合结束消失
+    this.guiBeiProtector = null;
+    this.log(`回合结算 · ${qiRecovery ? '双方各 +1 气 · ' : ''}兵法倒计时 -1 · 龟背阵效果消失`);
     if (this.state.checkGameOver()) return;
 
     // 2. 补牌阶段

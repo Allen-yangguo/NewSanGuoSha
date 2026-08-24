@@ -17,7 +17,29 @@
       <span class="title">{{ card.name }}</span>
       <span class="cat-tag">{{ catLabel }}</span>
     </div>
-    <div class="big-num" :class="numClass">{{ bigNum }}</div>
+    <div class="big-num" :class="numClass">
+      <span v-if="card.id === 'bagua'" class="bagua-mark" aria-label="八卦">
+        <svg viewBox="0 0 40 40" class="bagua-svg">
+          <g class="trigrams" fill="none" stroke="currentColor" stroke-width="1.6">
+            <g transform="translate(20,20) rotate(0)"><line x1="-3.5" y1="-13" x2="3.5" y2="-13"/><line x1="-3.5" y1="-10.5" x2="3.5" y2="-10.5"/><line x1="-3.5" y1="-8" x2="3.5" y2="-8"/></g>
+            <g transform="translate(20,20) rotate(45)"><line x1="-3.5" y1="-13" x2="3.5" y2="-13"/><line x1="0.5" y1="-10.5" x2="3.5" y2="-10.5"/><line x1="-3.5" y1="-8" x2="3.5" y2="-8"/></g>
+            <g transform="translate(20,20) rotate(90)"><line x1="-3.5" y1="-13" x2="3.5" y2="-13"/><line x1="-0.7" y1="-10.5" x2="0.7" y2="-10.5"/><line x1="-3.5" y1="-8" x2="3.5" y2="-8"/></g>
+            <g transform="translate(20,20) rotate(135)"><line x1="-3.5" y1="-13" x2="3.5" y2="-13"/><line x1="-3.5" y1="-10.5" x2="-1" y2="-10.5"/><line x1="1" y1="-10.5" x2="3.5" y2="-10.5"/><line x1="-3.5" y1="-8" x2="3.5" y2="-8"/></g>
+            <g transform="translate(20,20) rotate(180)"><line x1="-3.5" y1="-13" x2="-1" y2="-13"/><line x1="1" y1="-13" x2="3.5" y2="-13"/><line x1="-3.5" y1="-10.5" x2="-1" y2="-10.5"/><line x1="1" y1="-10.5" x2="3.5" y2="-10.5"/><line x1="-3.5" y1="-8" x2="-1" y2="-8"/><line x1="1" y1="-8" x2="3.5" y2="-8"/></g>
+            <g transform="translate(20,20) rotate(225)"><line x1="-3.5" y1="-13" x2="-1" y2="-13"/><line x1="1" y1="-13" x2="3.5" y2="-13"/><line x1="-0.7" y1="-10.5" x2="0.7" y2="-10.5"/><line x1="-3.5" y1="-8" x2="-1" y2="-8"/><line x1="1" y1="-8" x2="3.5" y2="-8"/></g>
+            <g transform="translate(20,20) rotate(270)"><line x1="-3.5" y1="-13" x2="-1" y2="-13"/><line x1="1" y1="-13" x2="3.5" y2="-13"/><line x1="-3.5" y1="-10.5" x2="3.5" y2="-10.5"/><line x1="-3.5" y1="-8" x2="-1" y2="-8"/><line x1="1" y1="-8" x2="3.5" y2="-8"/></g>
+            <g transform="translate(20,20) rotate(315)"><line x1="-3.5" y1="-13" x2="3.5" y2="-13"/><line x1="-3.5" y1="-10.5" x2="-1" y2="-10.5"/><line x1="1" y1="-10.5" x2="3.5" y2="-10.5"/><line x1="-3.5" y1="-8" x2="3.5" y2="-8"/></g>
+          </g>
+          <g class="taiji">
+            <circle cx="20" cy="20" r="5" fill="#FFFFFF" stroke="currentColor" stroke-width="0.8"/>
+            <path d="M20 15 A5 5 0 0 1 20 25 A2.5 2.5 0 0 1 20 20 A2.5 2.5 0 0 0 20 15 Z" fill="currentColor"/>
+            <circle cx="20" cy="17.5" r="0.8" fill="#FFFFFF"/>
+            <circle cx="20" cy="22.5" r="0.8" fill="currentColor"/>
+          </g>
+        </svg>
+      </span>
+      <template v-else>{{ bigNum }}</template>
+    </div>
     <div class="desc">
       <template v-if="card.category === 'general'">
         耗气 <b class="cost">{{ realCost }}</b> · 预计伤 <b>{{ dmgPreview }}</b>
@@ -70,13 +92,19 @@ const MAP: Record<string, string> = {
   strategy: '兵法',
   ultimate: '绝杀',
   formation: '阵法',
+  charm: '魅惑',
 };
 const catLabel = computed(() => MAP[props.card.category] || props.card.category);
 
 const bigNum = computed(() => {
   switch (props.card.category) {
-    case 'formation': // 八卦 / 追风 value=0，显示「阵」
-      return props.card.id.startsWith('bagua') ? '反' : '先';
+    case 'formation': // 八卦 / 追风 / 龟背 value=0，显示功能字
+      if (props.card.id.startsWith('bagua')) return '反';
+      if (props.card.id.startsWith('zhuifeng')) return '先';
+      if (props.card.id.startsWith('guibei')) return '御';
+      return '阵';
+    case 'charm':      // 貂蝉 / 小乔 value=0，显示「惑」
+      return '惑';
     case 'function_hp':
     case 'function_qi':
     case 'armor':
@@ -96,6 +124,7 @@ const numClass = computed(() => {
     case 'strategy':  return 'num-str';
     case 'ultimate':  return 'num-ult';
     case 'formation': return 'num-fmt';
+    case 'charm':     return 'num-chm';
     default:          return '';
   }
 });
@@ -146,6 +175,7 @@ function onClick(): void {
 .cat-strategy   { background: linear-gradient(180deg, #E8D9BC 0%, #D1B883 100%); border-color: #4B3B2A; }
 .cat-ultimate   { background: linear-gradient(180deg, #2A1A16 0%, #120B09 100%); color: #E8C66E; border-color: #C9A227; box-shadow: 0 3px 0 #8A6D29, 0 8px 16px rgba(0,0,0,.3); }
 .cat-formation  { background: linear-gradient(180deg, #DAE3E1 0%, #BFCFCC 100%); border-color: #344240; }
+.cat-charm      { background: linear-gradient(180deg, #F5DCE6 0%, #E0A8C6 100%); border-color: #8C4A6E; color: #5C2A4E; }
 
 .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 4px; }
 .title { font-size: 13px; font-weight: 900; letter-spacing: 1px; }
@@ -172,6 +202,10 @@ function onClick(): void {
 .num-str { color: #4B3B2A; }
 .num-ult { color: #E8C66E; text-shadow: 0 0 10px rgba(201, 162, 39, .5); }
 .num-fmt { color: #2F4644; }
+.num-chm { color: #8C4A6E; text-shadow: 0 0 8px rgba(140, 74, 110, .35); }
+.bagua-mark { width: 70%; max-width: 110px; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; }
+.bagua-mark .bagua-svg { width: 100%; height: 100%; animation: baguaSpin 14s linear infinite; }
+@keyframes baguaSpin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 
 .desc {
   font-size: 11px; line-height: 1.5;

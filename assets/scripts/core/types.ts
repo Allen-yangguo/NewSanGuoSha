@@ -15,6 +15,7 @@ export enum CardCategory {
   Strategy = 'strategy',          // 兵法增伤
   Ultimate = 'ultimate',          // 绝杀神兵
   Formation = 'formation',        // 阵法战术
+  Charm = 'charm',                // 魅惑类（削弱对方兵法/气）
 }
 
 /** 武将等级（用于生成卡牌数据，非运行时状态） */
@@ -67,6 +68,13 @@ export enum UltimateType {
 export enum FormationType {
   BaGua = 'bagua',   // 八卦阵（受击反弹）
   ZhuiFeng = 'zhuifeng', // 追风阵（篡改先手）
+  GuiBei = 'guibei', // 龟背阵（本回合对方武将攻击-1）
+}
+
+/** 魅惑种类 */
+export enum CharmType {
+  Diaochan = 'diaochan',   // 貂蝉
+  Xiaoqiao = 'xiaoqiao',   // 小乔
 }
 
 /** 卡牌静态定义（牌库模板） */
@@ -78,7 +86,7 @@ export interface CardDef {
   /** 卡牌大类 */
   category: CardCategory;
   /** 子类标识 */
-  subtype?: GeneralTier | ArmorTier | QiTier | HpTier | StrategyType | UltimateType | FormationType;
+  subtype?: GeneralTier | ArmorTier | QiTier | HpTier | StrategyType | UltimateType | FormationType | CharmType;
   /** 核心数值（攻击/防御/补气/补血/层数/真实伤害） */
   value: number;
   /** 耗气量（武将牌专用；功能牌打出 0 消耗，但补气值≠0） */

@@ -1,7 +1,7 @@
 /**
- * 三国卡牌对战 · 全 104 张卡牌数据定义（最终定稿）
+ * 三国卡牌对战 · 全 107 张卡牌数据定义（最终定稿）
  * 严格按官方规则文档数量对账：
- *   武将 38 + 防具 23 + 功能 31 + 兵法 3 + 绝杀 5 + 阵法 4 = 104
+ *   武将 38 + 防具 23 + 功能 31 + 兵法 3 + 绝杀 5 + 阵法 5 + 魅惑 2 = 107
  */
 import {
   CardCategory,
@@ -13,6 +13,7 @@ import {
   StrategyType,
   UltimateType,
   FormationType,
+  CharmType,
 } from './types';
 
 /** 生成 N 张同一定义的卡牌（带不同实例 ID 后缀） */
@@ -210,7 +211,7 @@ function buildUltimate(): CardDef[] {
   return out;
 }
 
-/** 阵法战术牌：4 张 */
+/** 阵法战术牌：5 张 */
 function buildFormation(): CardDef[] {
   const out: CardDef[] = [];
   // 八卦阵 ×2 受击反弹
@@ -223,10 +224,39 @@ function buildFormation(): CardDef[] {
     'zhuifeng', '追风阵', CardCategory.Formation, FormationType.ZhuiFeng,
     0, 0, '自身回合触发 · 下一回合仍为己方先手 · 生效后恢复默认轮换', 2,
   ));
+  // 龟背阵 ×1 本回合对方武将攻击 -1
+  out.push(...makeCopies(
+    'guibei', '龟背阵', CardCategory.Formation, FormationType.GuiBei,
+    0, 0, '自身回合触发 · 本回合对方武将攻击力 -1 · 绝杀不受影响 · 回合结束后消失', 1,
+  ));
   return out;
 }
 
-/** 构建完整 104 张牌库（按文档数量精确对账） */
+/** 魅惑牌：2 张 */
+function buildCharm(): CardDef[] {
+  const out: CardDef[] = [];
+  // 貂蝉 ×1
+  out.push({
+    id: 'diaochan',
+    name: '貂蝉',
+    category: CardCategory.Charm,
+    subtype: CharmType.Diaochan,
+    value: 0, cost: 0,
+    desc: '魅惑 · 对方兵法层 -1 · 若兵法层为 0 则对方 -3 气',
+  });
+  // 小乔 ×1
+  out.push({
+    id: 'xiaoqiao',
+    name: '小乔',
+    category: CardCategory.Charm,
+    subtype: CharmType.Xiaoqiao,
+    value: 0, cost: 0,
+    desc: '魅惑 · 对方兵法层 -1 · 若兵法层为 0 则对方 -3 气',
+  });
+  return out;
+}
+
+/** 构建完整 107 张牌库（按文档数量精确对账） */
 export function buildFullDeck(): CardDef[] {
   const out: CardDef[] = [];
   out.push(...buildGenerals());     // 38
@@ -235,14 +265,15 @@ export function buildFullDeck(): CardDef[] {
   out.push(...buildFunctionHp());  // 19
   out.push(...buildStrategy());     // 3
   out.push(...buildUltimate());     // 5
-  out.push(...buildFormation());    // 4
-  // 合计 38+23+12+19+3+5+4 = 104
+  out.push(...buildFormation());    // 5
+  out.push(...buildCharm());        // 2
+  // 合计 38+23+12+19+3+5+5+2 = 107
   return out;
 }
 
-/** 数量自检（开发期调用，断言牌库总数=104） */
+/** 数量自检（开发期调用，断言牌库总数=107） */
 export function assertDeckSize(deck: CardDef[]): void {
-  const expected = 104;
+  const expected = 107;
   if (deck.length !== expected) {
     throw new Error(`牌库数量错误：期望 ${expected}，实际 ${deck.length}`);
   }
@@ -258,7 +289,8 @@ export function assertDeckSize(deck: CardDef[]): void {
     [CardCategory.FunctionHp]: 19,
     [CardCategory.Strategy]: 3,
     [CardCategory.Ultimate]: 5,
-    [CardCategory.Formation]: 4,
+    [CardCategory.Formation]: 5,
+    [CardCategory.Charm]: 2,
   };
   for (const k of Object.keys(expect)) {
     if (counter[k] !== expect[k]) {
@@ -276,4 +308,5 @@ export const CARD_COLORS: Record<CardCategory, { bg: string; border: string; lab
   [CardCategory.Strategy]:   { bg: '#E8D9BC', border: '#4B3B2A', label: '兵法增伤' },
   [CardCategory.Ultimate]:   { bg: '#1F1310', border: '#C9A227', label: '绝杀神兵' },
   [CardCategory.Formation]:  { bg: '#D9E2E0', border: '#344240', label: '阵法战术' },
+  [CardCategory.Charm]:      { bg: '#F5DCE6', border: '#8C4A6E', label: '魅惑' },
 };

@@ -10,9 +10,9 @@ import { BattleState, PlayerState, StrategyRecord, StrategyType } from './types'
 import { CardCategory, CardDef } from './types';
 
 /** 血量上限 */
-export const HP_MAX = 10;
+export const HP_MAX = 12;
 /** 初始血量 */
-export const HP_INIT = 6;
+export const HP_INIT = 8;
 /** 初始气量 */
 export const QI_INIT = 6;
 /** 兵法持续回合数 */
@@ -107,6 +107,24 @@ export function tickStrategies(player: PlayerState): void {
     }
   }
   player.strategies = remaining;
+}
+
+/**
+ * 移除 1 层兵法（魅惑牌效果）：从最早记录开始扣，层数归零则移除该记录
+ * @returns 实际移除的层数（0 或 1）
+ */
+export function removeStrategyLayer(player: PlayerState): number {
+  for (const s of player.strategies) {
+    if (s.layers > 0) {
+      s.layers -= 1;
+      if (s.layers === 0) {
+        const idx = player.strategies.indexOf(s);
+        if (idx >= 0) player.strategies.splice(idx, 1);
+      }
+      return 1;
+    }
+  }
+  return 0;
 }
 
 /**
