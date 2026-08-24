@@ -419,6 +419,34 @@ a { color: #8C4A40; }
 }
 .avatar.opp { background: linear-gradient(#D7C7B0, #A48F72); border-color: #5C4A32; color: #2E2417; }
 
+/* 阵法效果指示器 */
+.formation-fx {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 14px;
+  margin: 4px auto;
+  max-width: 480px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #E8F4F0, #C8DDD6);
+  border: 1.5px solid #344240;
+  color: #2F4644;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(52, 66, 64, .15);
+  animation: fxPulse 2s ease-in-out infinite;
+}
+.formation-fx .fx-icon { font-size: 16px; }
+.formation-fx .fx-name { font-weight: 900; }
+.formation-fx .fx-desc { opacity: .85; flex: 1; }
+.formation-fx .fx-turns {
+  padding: 2px 8px; border-radius: 999px;
+  background: #344240; color: #DAE3E1;
+  font-size: 11px;
+}
+@keyframes fxPulse {
+  0%, 100% { box-shadow: 0 2px 8px rgba(52, 66, 64, .15); }
+  50% { box-shadow: 0 2px 16px rgba(52, 66, 64, .35); }
+}
+
 /* 头像旁手牌数徽章 */
 .avatar-wrap { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .hand-badge {

@@ -574,6 +574,8 @@ export class LocalEngine {
       isReflect: this.engine.turn.isAwaitingDefense() && this.engine.pendingAttack?.isReflect === true,
       emergencyHealPid: this.engine.emergencyHealPending,
       firstPlayerPid: s.firstPlayer,
+      guiBeiProtectorPid: this.engine.guiBeiProtector,
+      guiBeiRemainingTurns: this.engine.guiBeiRemainingTurns,
       deckCount: s.deck.length,
       discardCount: s.discard.length,
       actionEnded: [s.actionEnded[0], s.actionEnded[1]],

@@ -125,6 +125,8 @@ export const state = reactive<RoomStateView>({
   isReflect: false,
   emergencyHealPid: null,
   firstPlayerPid: 0,
+  guiBeiProtectorPid: null,
+  guiBeiRemainingTurns: 0,
   deckCount: 0,
   discardCount: 0,
   actionEnded: [false, false],

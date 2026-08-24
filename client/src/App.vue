@@ -95,6 +95,14 @@
           </div>
         </div>
 
+        <!-- 阵法效果指示器 -->
+        <div class="formation-fx" v-if="state.guiBeiProtectorPid !== null">
+          <span class="fx-icon">🛡</span>
+          <span class="fx-name">龟背阵</span>
+          <span class="fx-desc">{{ state.guiBeiProtectorPid === state.yourPid ? '己方' : '对方' }}受保护 · 武将攻击 -1</span>
+          <span class="fx-turns">剩 {{ state.guiBeiRemainingTurns }} 回合</span>
+        </div>
+
         <!-- 操作按钮区：补气按钮 / 结束回合 / 确认防御 / 放弃救血 -->
         <div class="action-btns">
           <button

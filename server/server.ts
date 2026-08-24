@@ -135,6 +135,8 @@ interface RoomStateView {
   /** 紧急救血等待中的 pid */
   emergencyHealPid: PlayerId | null;
   firstPlayerPid: PlayerId;
+  guiBeiProtectorPid: PlayerId | null;
+  guiBeiRemainingTurns: number;
   deckCount: number;
   discardCount: number;
   /** 双方是否已结束行动（UI 用来显示「结束行动」按钮状态） */
@@ -217,6 +219,8 @@ function buildRoomState(socketId: string): RoomStateView {
     isReflect,
     emergencyHealPid: room.engine.emergencyHealPending,
     firstPlayerPid: room.engine.state.firstPlayer,
+    guiBeiProtectorPid: room.engine.guiBeiProtector,
+    guiBeiRemainingTurns: room.engine.guiBeiRemainingTurns,
     deckCount: room.engine.state.deck.length,
     discardCount: room.engine.state.discard.length,
     actionEnded: [...room.engine.state.actionEnded] as [boolean, boolean],

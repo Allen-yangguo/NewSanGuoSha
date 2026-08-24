@@ -69,6 +69,10 @@ export interface RoomStateView {
   isReflect: boolean;
   emergencyHealPid: PlayerId | null;
   firstPlayerPid: PlayerId;
+  /** 龟背阵保护方 pid（null=未激活） */
+  guiBeiProtectorPid: PlayerId | null;
+  /** 龟背阵剩余持续回合数 */
+  guiBeiRemainingTurns: number;
   deckCount: number;
   discardCount: number;
   /** 双方是否已结束行动 */
