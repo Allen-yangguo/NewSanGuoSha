@@ -1,50 +1,28 @@
 /**
- * 用户管理 · SQLite 数据访问层
- * 单文件 data/users.db,首次启动自动建表
+ * 用户管理 · JSON 文件数据访问层（纯 JS，无原生模块依赖）
+ * 单文件 data/users.json，首次启动自动创建
  */
-import Database = require('better-sqlite3');
 import * as path from 'path';
 import * as fs from 'fs';
 
 const DB_DIR = path.resolve(process.cwd(), 'data');
-const DB_PATH = path.join(DB_DIR, 'users.db');
+const DB_PATH = path.join(DB_DIR, 'users.json');
 
-let _db: Database.Database | null = null;
-
-export function getDb(): Database.Database {
-  if (_db) return _db;
-  if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
-  _db = new Database(DB_PATH);
-  _db.pragma('journal_mode = WAL');
-  initSchema(_db);
-  return _db;
+interface SmsCodeRow {
+  id: number;
+  phone: string;
+  code: string;
+  purpose: string;
+  expires_at: string;
+  consumed: boolean;
+  created_at: string;
 }
 
-function initSchema(db: Database.Database): void {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      phone TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS sms_codes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      phone TEXT NOT NULL,
-      code TEXT NOT NULL,
-      purpose TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      consumed INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_sms_phone_purpose ON sms_codes(phone, purpose);
-    CREATE TABLE IF NOT EXISTS guests (
-      guest_id TEXT PRIMARY KEY,
-      created_at TEXT NOT NULL,
-      last_active TEXT NOT NULL
-    );
-  `);
+interface DBData {
+  users: UserRow[];
+  sms_codes: SmsCodeRow[];
+  guests: { guest_id: string; created_at: string; last_active: string }[];
+  nextId: { users: number; sms_codes: number };
 }
 
 export interface UserRow {
@@ -55,30 +33,119 @@ export interface UserRow {
   updated_at: string;
 }
 
+let _data: DBData | null = null;
+
+function loadData(): DBData {
+  if (_data) return _data;
+  if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
+  if (!fs.existsSync(DB_PATH)) {
+    const fresh: DBData = { users: [], sms_codes: [], guests: [], nextId: { users: 1, sms_codes: 1 } };
+    _data = fresh;
+    saveData();
+    return _data;
+  }
+  const raw = fs.readFileSync(DB_PATH, 'utf-8');
+  let parsed: DBData;
+  try {
+    parsed = JSON.parse(raw);
+    if (!parsed.users) parsed.users = [];
+    if (!parsed.sms_codes) parsed.sms_codes = [];
+    if (!parsed.guests) parsed.guests = [];
+    if (!parsed.nextId) parsed.nextId = { users: 1, sms_codes: 1 };
+  } catch {
+    parsed = { users: [], sms_codes: [], guests: [], nextId: { users: 1, sms_codes: 1 } };
+  }
+  _data = parsed;
+  return _data;
+}
+
+function saveData(): void {
+  if (!_data) return;
+  fs.writeFileSync(DB_PATH, JSON.stringify(_data, null, 2), 'utf-8');
+}
+
+/** 初始化（兼容旧 getDb 调用，确保数据文件存在） */
+export function getDb(): { ok: boolean } {
+  loadData();
+  return { ok: true };
+}
+
+// ===== 用户表 =====
 export function findUserByPhone(phone: string): UserRow | undefined {
-  return getDb().prepare('SELECT * FROM users WHERE phone = ?').get(phone) as UserRow | undefined;
+  return loadData().users.find(u => u.phone === phone);
 }
 
 export function findUserById(id: number): UserRow | undefined {
-  return getDb().prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
+  return loadData().users.find(u => u.id === id);
 }
 
 export function createUser(phone: string, passwordHash: string): UserRow {
+  const data = loadData();
   const now = new Date().toISOString();
-  const info = getDb()
-    .prepare('INSERT INTO users (phone, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?)')
-    .run(phone, passwordHash, now, now);
-  return { id: Number(info.lastInsertRowid), phone, password_hash: passwordHash, created_at: now, updated_at: now };
+  const row: UserRow = {
+    id: data.nextId.users++,
+    phone,
+    password_hash: passwordHash,
+    created_at: now,
+    updated_at: now,
+  };
+  data.users.push(row);
+  saveData();
+  return row;
 }
 
 export function updateUserPassword(phone: string, passwordHash: string): void {
-  const now = new Date().toISOString();
-  getDb().prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE phone = ?').run(passwordHash, now, phone);
+  const data = loadData();
+  const user = data.users.find(u => u.phone === phone);
+  if (user) {
+    user.password_hash = passwordHash;
+    user.updated_at = new Date().toISOString();
+    saveData();
+  }
 }
 
+// ===== 游客表 =====
 export function touchGuest(guestId: string): void {
+  const data = loadData();
   const now = new Date().toISOString();
-  getDb()
-    .prepare('INSERT INTO guests (guest_id, created_at, last_active) VALUES (?, ?, ?) ON CONFLICT(guest_id) DO UPDATE SET last_active = ?')
-    .run(guestId, now, now, now);
+  const existing = data.guests.find(g => g.guest_id === guestId);
+  if (existing) {
+    existing.last_active = now;
+  } else {
+    data.guests.push({ guest_id: guestId, created_at: now, last_active: now });
+  }
+  saveData();
+}
+
+// ===== 短信验证码表 =====
+export function insertSmsCode(phone: string, code: string, purpose: string, expiresAt: string): void {
+  const data = loadData();
+  const createdAt = new Date().toISOString();
+  data.sms_codes.push({
+    id: data.nextId.sms_codes++,
+    phone, code, purpose, expires_at: expiresAt,
+    consumed: false, created_at: createdAt,
+  });
+  saveData();
+}
+
+export function findLatestSmsCode(phone: string, purpose: string): { id: number; code: string; expires_at: string } | undefined {
+  const data = loadData();
+  // 倒序找最新一条未消费的
+  for (let i = data.sms_codes.length - 1; i >= 0; i--) {
+    const row = data.sms_codes[i];
+    if (row.phone === phone && row.purpose === purpose && !row.consumed) {
+      return { id: row.id, code: row.code, expires_at: row.expires_at };
+    }
+  }
+  return undefined;
+}
+
+export function markSmsCodeConsumed(id: number): void {
+  const data = loadData();
+  const row = data.sms_codes.find(s => s.id === id);
+  if (row) {
+    row.consumed = true;
+    saveData();
+  }
 }

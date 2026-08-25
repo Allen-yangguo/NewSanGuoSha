@@ -1,14 +1,9 @@
-# 单阶段构建：避免 slim 镜像缺少 better-sqlite3 原生模块依赖
-FROM node:20
-
-# 安装原生模块编译工具(better-sqlite3 需要 python3 + make + g++)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
+# 纯 JS 无原生模块，不需要 python/make/g++
+FROM node:20-slim
 
 WORKDIR /app
 
-# 先复制 package 文件，利用 Docker 层缓存
+# 复制 package 文件，利用 Docker 层缓存
 COPY package.json package-lock.json ./
 COPY client/package.json client/package-lock.json ./client/
 
@@ -21,7 +16,7 @@ COPY . .
 RUN npm run build:server
 RUN cd client && npm run build
 
-# 创建数据目录(SQLite 持久化)
+# 创建数据目录
 RUN mkdir -p data
 
 EXPOSE 10000
@@ -29,5 +24,4 @@ EXPOSE 10000
 ENV PORT=10000
 ENV NODE_ENV=production
 
-# 用 shell 启动，先打印调试信息，即使 node 崩溃也能看到输出
-CMD ["sh", "-c", "echo '=== container starting ===' && pwd && ls -la dist/server/server.js 2>&1 && echo 'node version:' && node -v && echo 'starting server...' && node dist/server/server.js"]
+CMD ["node", "dist/server/server.js"]

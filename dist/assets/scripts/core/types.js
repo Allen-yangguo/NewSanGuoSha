@@ -4,7 +4,7 @@
  * 引擎无关，Cocos-Creator 与 Web 均可使用
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.GameOverReason = exports.BattleState = exports.TurnPhase = exports.FormationType = exports.UltimateType = exports.StrategyType = exports.HpTier = exports.QiTier = exports.ArmorTier = exports.GeneralTier = exports.CardCategory = void 0;
+exports.GameOverReason = exports.BattleState = exports.TurnPhase = exports.CharmType = exports.FormationType = exports.UltimateType = exports.StrategyType = exports.HpTier = exports.QiTier = exports.ArmorTier = exports.GeneralTier = exports.CardCategory = void 0;
 /** 卡牌大类 */
 var CardCategory;
 (function (CardCategory) {
@@ -15,6 +15,7 @@ var CardCategory;
     CardCategory["Strategy"] = "strategy";
     CardCategory["Ultimate"] = "ultimate";
     CardCategory["Formation"] = "formation";
+    CardCategory["Charm"] = "charm";
 })(CardCategory || (exports.CardCategory = CardCategory = {}));
 /** 武将等级（用于生成卡牌数据，非运行时状态） */
 var GeneralTier;
@@ -67,7 +68,14 @@ var FormationType;
 (function (FormationType) {
     FormationType["BaGua"] = "bagua";
     FormationType["ZhuiFeng"] = "zhuifeng";
+    FormationType["GuiBei"] = "guibei";
 })(FormationType || (exports.FormationType = FormationType = {}));
+/** 魅惑种类 */
+var CharmType;
+(function (CharmType) {
+    CharmType["Diaochan"] = "diaochan";
+    CharmType["Xiaoqiao"] = "xiaoqiao";
+})(CharmType || (exports.CharmType = CharmType = {}));
 /** 回合阶段 */
 var TurnPhase;
 (function (TurnPhase) {

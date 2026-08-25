@@ -34,9 +34,13 @@ const handleStrategy = (engine, card, actor) => {
 const handleUltimate = (engine, card, actor) => {
     return engine.playUltimate(card, actor);
 };
-/** 阵法：八卦阵受击反弹 / 追风阵篡改先手 */
+/** 阵法：八卦阵受击反弹 / 追风阵篡改先手 / 龟背阵减攻 */
 const handleFormation = (engine, card, actor) => {
     return engine.playFormation(card, actor);
+};
+/** 魅惑：对方兵法层 -1，为 0 则对方 -3 气 */
+const handleCharm = (engine, card, actor) => {
+    return engine.playCharm(card, actor);
 };
 /** 分发表：按卡牌类别路由到对应处理函数 */
 const dispatchTable = {
@@ -47,6 +51,7 @@ const dispatchTable = {
     [types_1.CardCategory.Strategy]: handleStrategy,
     [types_1.CardCategory.Ultimate]: handleUltimate,
     [types_1.CardCategory.Formation]: handleFormation,
+    [types_1.CardCategory.Charm]: handleCharm,
 };
 /**
  * 卡牌效果总入口

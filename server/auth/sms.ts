@@ -5,7 +5,7 @@
  *
  * 限流:60s 重发间隔、同号同目的每日 5 次
  */
-import { getDb } from './db';
+import { insertSmsCode, findLatestSmsCode, markSmsCodeConsumed } from './db';
 
 export type SmsPurpose = 'register' | 'reset';
 
@@ -61,10 +61,7 @@ export function sendCode(phone: string, purpose: SmsPurpose): SmsResult {
 
   // 持久化验证码记录(用于校验与一次性消费)
   const expiresAt = new Date(now + CODE_VALID_MS).toISOString();
-  const createdAt = new Date(now).toISOString();
-  getDb()
-    .prepare('INSERT INTO sms_codes (phone, code, purpose, expires_at, consumed, created_at) VALUES (?, ?, ?, ?, 0, ?)')
-    .run(phone, code, purpose, expiresAt, createdAt);
+  insertSmsCode(phone, code, purpose, expiresAt);
 
   // ===== 生产环境短信适配层接入点 =====
   // if (!isTestMode()) { await sendViaAliyun(phone, code); }
@@ -76,12 +73,10 @@ export function sendCode(phone: string, purpose: SmsPurpose): SmsResult {
 }
 
 export function verifyCode(phone: string, purpose: SmsPurpose, code: string): { ok: boolean; message: string } {
-  const row = getDb()
-    .prepare('SELECT * FROM sms_codes WHERE phone = ? AND purpose = ? AND consumed = 0 ORDER BY id DESC LIMIT 1')
-    .get(phone, purpose) as { id: number; code: string; expires_at: string } | undefined;
+  const row = findLatestSmsCode(phone, purpose);
   if (!row) return { ok: false, message: '验证码不存在或已使用' };
   if (new Date(row.expires_at).getTime() < Date.now()) return { ok: false, message: '验证码已过期' };
   if (row.code !== code) return { ok: false, message: '验证码错误' };
-  getDb().prepare('UPDATE sms_codes SET consumed = 1 WHERE id = ?').run(row.id);
+  markSmsCodeConsumed(row.id);
   return { ok: true, message: '验证成功' };
 }

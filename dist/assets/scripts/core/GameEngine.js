@@ -27,6 +27,10 @@ class GameEngine {
         this.usedArmorCards = [];
         /** 当前防御响应中已使用的八卦阵卡（用于弃牌） */
         this.usedBaguaCards = [];
+        /** 龟背阵保护方（该玩家受到武将攻击时伤害 -1，持续3回合） */
+        this.guiBeiProtector = null;
+        /** 龟背阵剩余持续回合数（>0 时生效，每回合 -1，归 0 清除） */
+        this.guiBeiRemainingTurns = 0;
         /** 紧急救血等待中（普通攻击打至 0 血，可补血续命） */
         this.emergencyHealPending = null;
         /** 历史日志（用于 UI 显示与调试） */
@@ -122,14 +126,20 @@ class GameEngine {
             return { ok: false, message: `气量不足：需要 ${cost}，当前 ${attacker.qi}` };
         }
         attacker.qi -= cost;
-        const damage = (0, BattleState_1.calcGeneralDamage)(card.def, attacker);
+        const baseDamage = (0, BattleState_1.calcGeneralDamage)(card.def, attacker);
         const stateBonus = (0, BattleState_1.getStateBonus)(attacker);
         const stratLayers = (0, BattleState_1.totalStrategyLayers)(attacker);
+        // 龟背阵：若防御方有龟背保护，武将攻击伤害 -1（最低 0），绝杀不受影响
+        const defenderId = (1 - actor);
+        let damage = baseDamage;
+        if (this.guiBeiProtector === defenderId) {
+            damage = Math.max(0, damage - 1);
+            this.log(`龟背阵生效 · 武将攻击伤害 -1 → ${damage}`);
+        }
         this.log(`玩家${actor + 1} 打出【${card.def.name}】耗气 ${cost} → 伤害 ${damage} ` +
             `(基础${card.def.value}+兵法${stratLayers}+状态${stateBonus})`);
         this.consumeCard(actor, card);
         // 设置待结算攻击，进入防御响应
-        const defenderId = (1 - actor);
         this.pendingAttack = {
             damage,
             source: 'general',
@@ -314,7 +324,43 @@ class GameEngine {
             this.consumeCard(actor, card);
             return { ok: true, message: '追风阵生效 · 下回合仍为先手' };
         }
+        if (type === types_1.FormationType.GuiBei) {
+            // 龟背阵：自身回合打出，持续3回合对方武将攻击 -1
+            if (!this.canAct(actor))
+                return { ok: false, message: '非己方行动阶段' };
+            if (this.turn.isAwaitingDefense())
+                return { ok: false, message: '当前正在等待防御响应' };
+            this.guiBeiProtector = actor;
+            this.guiBeiRemainingTurns = 3;
+            this.log(`玩家${actor + 1} 打出【龟背阵】· 持续3回合对方武将攻击 -1 · 绝杀不受影响`);
+            this.consumeCard(actor, card);
+            return { ok: true, message: '龟背阵生效 · 持续3回合对方武将攻击 -1' };
+        }
         return { ok: false, message: '未知阵法' };
+    }
+    /** 魅惑：对方兵法层 -1，若为 0 则对方 -3 气 */
+    playCharm(card, actor) {
+        if (!this.canAct(actor))
+            return { ok: false, message: '非己方行动阶段' };
+        if (card.def.category !== types_1.CardCategory.Charm)
+            return { ok: false, message: '非魅惑牌' };
+        if (this.turn.isAwaitingDefense())
+            return { ok: false, message: '当前正在等待防御响应' };
+        const targetId = (1 - actor);
+        const target = this.state.players[targetId];
+        const totalLayers = (0, BattleState_1.totalStrategyLayers)(target);
+        this.consumeCard(actor, card);
+        if (totalLayers > 0) {
+            (0, BattleState_1.removeStrategyLayer)(target);
+            const remain = (0, BattleState_1.totalStrategyLayers)(target);
+            this.log(`玩家${actor + 1} 打出【${card.def.name}】· 对方兵法 -1 层 → 剩余 ${remain}`);
+            return { ok: true, message: `对方兵法 -1 层 · 剩余 ${remain}`, triggeredCharm: true };
+        }
+        else {
+            target.qi = Math.max(0, target.qi - 3);
+            this.log(`玩家${actor + 1} 打出【${card.def.name}】· 对方兵法为 0 · 对方 -3 气 → ${target.qi}`);
+            return { ok: true, message: `对方兵法为 0 · 对方 -3 气`, triggeredCharm: true, triggeredQi: true };
+        }
     }
     // ============ 防御响应 ============
     /** 防御方主动结束防御响应（不再出防具/八卦阵），进入伤害结算 */
@@ -561,6 +607,14 @@ class GameEngine {
                 p.qi += 1;
             // 兵法倒计时 -1
             (0, BattleState_1.tickStrategies)(p);
+        }
+        // 龟背阵效果倒计时 -1，归 0 清除
+        if (this.guiBeiRemainingTurns > 0) {
+            this.guiBeiRemainingTurns -= 1;
+            if (this.guiBeiRemainingTurns === 0) {
+                this.guiBeiProtector = null;
+                this.log(`龟背阵效果到期消失`);
+            }
         }
         this.log(`回合结算 · ${qiRecovery ? '双方各 +1 气 · ' : ''}兵法倒计时 -1`);
         if (this.state.checkGameOver())

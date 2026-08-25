@@ -8,6 +8,7 @@ exports.calcGeneralCost = calcGeneralCost;
 exports.calcGeneralDamage = calcGeneralDamage;
 exports.addStrategy = addStrategy;
 exports.tickStrategies = tickStrategies;
+exports.removeStrategyLayer = removeStrategyLayer;
 exports.isDown = isDown;
 /**
  * 三国卡牌对战 · 战斗状态与伤害结算
@@ -20,9 +21,9 @@ exports.isDown = isDown;
 const types_1 = require("./types");
 const types_2 = require("./types");
 /** 血量上限 */
-exports.HP_MAX = 10;
+exports.HP_MAX = 12;
 /** 初始血量 */
-exports.HP_INIT = 6;
+exports.HP_INIT = 8;
 /** 初始气量 */
 exports.QI_INIT = 6;
 /** 兵法持续回合数 */
@@ -108,6 +109,24 @@ function tickStrategies(player) {
         }
     }
     player.strategies = remaining;
+}
+/**
+ * 移除 1 层兵法（魅惑牌效果）：从最早记录开始扣，层数归零则移除该记录
+ * @returns 实际移除的层数（0 或 1）
+ */
+function removeStrategyLayer(player) {
+    for (const s of player.strategies) {
+        if (s.layers > 0) {
+            s.layers -= 1;
+            if (s.layers === 0) {
+                const idx = player.strategies.indexOf(s);
+                if (idx >= 0)
+                    player.strategies.splice(idx, 1);
+            }
+            return 1;
+        }
+    }
+    return 0;
 }
 /**
  * 判定玩家是否处于「绝杀击杀」状态（用于禁止补血）

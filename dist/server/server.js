@@ -56,6 +56,9 @@ const GameEngine_1 = require("../assets/scripts/core/GameEngine");
 const CardEffect_1 = require("../assets/scripts/core/CardEffect");
 const types_1 = require("../assets/scripts/core/types");
 const BattleState_1 = require("../assets/scripts/core/BattleState");
+const routes_1 = require("./auth/routes");
+const authService_1 = require("./auth/authService");
+const db_1 = require("./auth/db");
 // ============================================================
 // 配置
 // ============================================================
@@ -86,8 +89,8 @@ const room = {
     engine: new GameEngine_1.GameEngine(),
     started: false,
     players: {
-        p1: { socketId: null, pid: 0, name: '玩家1（先手方）' },
-        p2: { socketId: null, pid: 1, name: '玩家2（后手方）' },
+        p1: { socketId: null, pid: 0, name: '玩家1（先手方）', userId: null },
+        p2: { socketId: null, pid: 1, name: '玩家2（后手方）', userId: null },
     },
     spectators: [],
 };
@@ -153,6 +156,8 @@ function buildRoomState(socketId) {
         isReflect,
         emergencyHealPid: room.engine.emergencyHealPending,
         firstPlayerPid: room.engine.state.firstPlayer,
+        guiBeiProtectorPid: room.engine.guiBeiProtector,
+        guiBeiRemainingTurns: room.engine.guiBeiRemainingTurns,
         deckCount: room.engine.state.deck.length,
         discardCount: room.engine.state.discard.length,
         actionEnded: [...room.engine.state.actionEnded],
@@ -218,6 +223,9 @@ function tryAutoEndAction(io, room) {
 // ============================================================
 const app = express();
 app.use(cors());
+app.use(express.json());
+// 用户认证 REST 接口
+app.use('/api/auth', (0, routes_1.createAuthRouter)());
 // 静态托管：基于 process.cwd() 解析 client/dist，兼容 ts-node 和编译后运行
 // ts-node 运行 server/server.ts 时 cwd 是项目根
 // node dist/server/server.js 运行时 cwd 是项目根
@@ -251,6 +259,17 @@ const server = http.createServer(app);
 const io = new socket_io_1.Server(server, {
     cors: { origin: '*' },
 });
+// 连接鉴权：必须携带有效 JWT（正式用户或游客），否则拒绝连接
+io.use((socket, next) => {
+    const token = socket.handshake.auth?.token;
+    if (!token)
+        return next(new Error('未登录'));
+    const payload = (0, authService_1.verifyToken)(token);
+    if (!payload)
+        return next(new Error('登录已过期'));
+    socket.data.auth = payload;
+    next();
+});
 // ============================================================
 // Socket 事件处理
 // ============================================================
@@ -259,17 +278,30 @@ io.on('connection', (socket) => {
     // ---------- joinRoom：客户端加入房间（分配 p1/p2 槽）----------
     socket.on('joinRoom', (payload = {}, ack) => {
         const cb = typeof ack === 'function' ? ack : () => { };
-        // 如果这 socket 原本在某个槽（同 socketId 重连），先清掉旧的
+        const auth = socket.data.auth;
+        const userId = auth?.uid ?? null;
+        // 清理同 socketId / 同 userId 的旧占用(只清 socketId,保留 userId 以便按身份恢复)
         for (const s of ['p1', 'p2']) {
-            if (room.players[s].socketId === socket.id)
-                room.players[s].socketId = null;
+            const slot = room.players[s];
+            if (slot.socketId === socket.id || (userId && slot.userId === userId)) {
+                slot.socketId = null;
+            }
         }
-        // 优先尝试恢复到 preferSlot（客户端 localStorage 记录的槽位）
         let mySlot = null;
-        if (payload?.preferSlot && !room.players[payload.preferSlot].socketId) {
+        // 1) 按 userId 恢复(服务端身份重连,比 localStorage 槽位更可靠)
+        if (userId) {
+            for (const s of ['p1', 'p2']) {
+                if (room.players[s].userId === userId && !room.players[s].socketId) {
+                    mySlot = s;
+                    break;
+                }
+            }
+        }
+        // 2) 按 preferSlot（客户端 localStorage 记录的槽位）
+        if (!mySlot && payload?.preferSlot && !room.players[payload.preferSlot].socketId) {
             mySlot = payload.preferSlot;
         }
-        // 否则找空槽：优先 p1，再 p2
+        // 3) 否则找空槽：优先 p1，再 p2
         if (!mySlot) {
             if (!room.players.p1.socketId)
                 mySlot = 'p1';
@@ -281,6 +313,7 @@ io.on('connection', (socket) => {
             return;
         }
         room.players[mySlot].socketId = socket.id;
+        room.players[mySlot].userId = userId;
         if (payload?.name)
             room.players[mySlot].name = payload.name;
         socket.join(ROOM_ID);
@@ -348,6 +381,7 @@ io.on('connection', (socket) => {
                 triggeredHeal: !!r.triggeredHeal,
                 triggeredQi: !!r.triggeredQi,
                 triggeredUltimate: !!r.triggeredUltimate,
+                triggeredCharm: !!r.triggeredCharm,
             },
             attackPower,
         });
@@ -533,6 +567,8 @@ io.on('connection', (socket) => {
                 room.started = false;
                 room.engine = new GameEngine_1.GameEngine();
                 room.engine.initGame();
+                room.players.p1.userId = null;
+                room.players.p2.userId = null;
                 console.log('[IO] 所有玩家离线 · 房间已重置');
             }
             broadcastRoomState(io);
@@ -550,6 +586,15 @@ function getPidBySocket(socketId) {
 // 启动
 // ============================================================
 async function main() {
+    // 初始化用户数据库(建表)
+    try {
+        (0, db_1.getDb)();
+        console.log('[DB] SQLite 初始化成功');
+    }
+    catch (e) {
+        console.error('[DB] SQLite 初始化失败：', e);
+        throw e;
+    }
     const ip = getLanIp();
     const lanUrl = `http://${ip}:${PORT}`;
     server.listen(PORT, BIND_HOST, async () => {
@@ -568,7 +613,19 @@ async function main() {
     });
 }
 main().catch(err => {
-    console.error('启动失败：', err);
+    console.error('=== 服务启动失败 ===');
+    console.error('错误类型:', err?.constructor?.name || typeof err);
+    console.error('错误消息:', err?.message || err);
+    if (err?.stack)
+        console.error('堆栈:', err.stack);
+    process.exit(1);
+});
+process.on('uncaughtException', (err) => {
+    console.error('=== uncaughtException ===', err);
+    process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('=== unhandledRejection ===', reason);
     process.exit(1);
 });
 //# sourceMappingURL=server.js.map
