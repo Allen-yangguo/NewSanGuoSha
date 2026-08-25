@@ -1,0 +1,11 @@
+node_modules
+client/node_modules
+dist
+data
+*.log
+*.tmp
+.git
+.vscode
+.idea
+web-test
+.ssh-temp
