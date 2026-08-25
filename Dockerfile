@@ -1,5 +1,5 @@
-# ---- 构建阶段 ----
-FROM node:20 AS builder
+# 单阶段构建：避免 slim 镜像缺少 better-sqlite3 原生模块依赖
+FROM node:20
 
 # 安装原生模块编译工具(better-sqlite3 需要 python3 + make + g++)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -20,17 +20,6 @@ RUN cd client && npm ci
 COPY . .
 RUN npm run build:server
 RUN cd client && npm run build
-
-# ---- 运行阶段 ----
-FROM node:20-slim
-
-WORKDIR /app
-
-# 复制编译产物和依赖
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/client/dist ./client/dist
-COPY package.json ./
 
 # 创建数据目录(SQLite 持久化)
 RUN mkdir -p data

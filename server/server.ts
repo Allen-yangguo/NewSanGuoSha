@@ -640,7 +640,13 @@ function getPidBySocket(socketId: string): PlayerId | null {
 // ============================================================
 async function main() {
   // 初始化用户数据库(建表)
-  getDb();
+  try {
+    getDb();
+    console.log('[DB] SQLite 初始化成功');
+  } catch (e) {
+    console.error('[DB] SQLite 初始化失败：', e);
+    throw e;
+  }
   const ip = getLanIp();
   const lanUrl = `http://${ip}:${PORT}`;
   server.listen(PORT, BIND_HOST, async () => {
@@ -660,6 +666,18 @@ async function main() {
 }
 
 main().catch(err => {
-  console.error('启动失败：', err);
+  console.error('=== 服务启动失败 ===');
+  console.error('错误类型:', err?.constructor?.name || typeof err);
+  console.error('错误消息:', err?.message || err);
+  if (err?.stack) console.error('堆栈:', err.stack);
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('=== uncaughtException ===', err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('=== unhandledRejection ===', reason);
   process.exit(1);
 });
