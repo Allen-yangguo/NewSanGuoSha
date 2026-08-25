@@ -29,4 +29,5 @@ EXPOSE 10000
 ENV PORT=10000
 ENV NODE_ENV=production
 
-CMD ["node", "dist/server/server.js"]
+# 用 shell 启动，先打印调试信息，即使 node 崩溃也能看到输出
+CMD ["sh", "-c", "echo '=== container starting ===' && pwd && ls -la dist/server/server.js 2>&1 && echo 'node version:' && node -v && echo 'starting server...' && node dist/server/server.js"]
