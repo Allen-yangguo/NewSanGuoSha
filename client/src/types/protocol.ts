@@ -87,6 +87,23 @@ export interface RoomStateView {
   logs: string[];
 }
 
+// ====== 大厅：5 桌并行 ======
+/** 单个座位在大厅的视图 */
+export interface TableSeatView {
+  /** null=空座；有玩家时显示昵称 */
+  name: string | null;
+  ready: boolean;
+  /** 在线(true)/掉线重连中(false) */
+  present: boolean;
+}
+/** 单桌摘要（大厅列表用） */
+export interface TableSummary {
+  id: number;
+  started: boolean;
+  p1: TableSeatView;
+  p2: TableSeatView;
+}
+
 // ===== 局末结算 =====
 export interface SettlementBreakdown {
   combatScore: number;
@@ -120,6 +137,16 @@ export interface RecordView {
 // ====== 客户端 → 服务端（emit 带 ack）======
 export interface ClientEvents {
   joinRoom: (payload: { roomId?: string; name?: string; preferSlot?: Slot }, ack?: (ok: boolean, data: any) => void) => void;
+  /** 大厅：在指定桌的指定座位坐下 */
+  sitDown: (payload: { tableId: number; slot: Slot; name?: string }, ack?: (ok: boolean, data: { tableId: number; slot: Slot; pid: PlayerId; started: boolean } | { error: string }) => void) => void;
+  /** 大厅：站起（离开座位）*/
+  standUp: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
+  /** 大厅：准备（双方都准备才开局）*/
+  ready: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
+  /** 大厅：取消准备 */
+  cancelReady: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
+  /** 大厅：拉取所有桌摘要 */
+  getTableList: (payload?: {}, ack?: (ok: boolean, data: TableSummary[]) => void) => void;
   playCard: (payload: { cardUid: string }, ack?: (ok: boolean, data: any) => void) => void;
   useBonus: (payload: { type: 'normal' | 'big' | 'burst' }, ack?: (ok: boolean, data: any) => void) => void;
   confirmDefend: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
@@ -133,6 +160,10 @@ export interface ClientEvents {
 // ====== 服务端 → 客户端（on）======
 export interface ServerEvents {
   roomState: (state: RoomStateView) => void;
+  /** 大厅：全桌列表更新 */
+  tableList: (data: TableSummary[]) => void;
+  /** 大厅：单桌状态更新 */
+  tableUpdate: (data: TableSummary) => void;
   eventGameStart: (data: { firstPlayerPid: PlayerId }) => void;
   eventPlayCard: (data: {
     actorPid: PlayerId;

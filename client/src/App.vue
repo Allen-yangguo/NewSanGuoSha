@@ -72,11 +72,11 @@
       </template>
     </template>
 
-    <!-- 局域网大厅（选了局域网但还没加入房间） -->
-    <LobbyScreen v-else-if="gameMode === 'lan' && !state.yourSlot" @exit="exitToEntry" />
+    <!-- 局域网大厅：选了联机但对局未开始（坐下/准备都在大厅内完成）-->
+    <LobbyScreen v-else-if="gameMode === 'lan' && !state.started" @exit="exitToEntry" />
 
-    <!-- 联机已加入但等待对手 / 单机模式直接进入对局 -->
-    <template v-else-if="gameMode === 'single' || state.yourSlot">
+    <!-- 联机对局进行中 / 单机模式直接进入对局 -->
+    <template v-else-if="gameMode === 'single' || state.started">
       <!-- 等待对手 -->
       <div v-if="!state.started" class="lobby">
         <div class="lobby-box">

@@ -1,15 +1,17 @@
 <!--
-  等待大厅 / 连接界面
-    - 显示本页 URL（可复制给好友）
-    - 「加入房间」按钮
+  联机大厅 · 5 桌并行（参考 QQ 游戏大厅）
+    - 顶部：标题 + 分享网址 + 返回
+    - 5 个桌卡片网格：每桌 2 座，显示玩家名/准备/在线状态
+    - 空座可点「入座」；坐下后显示「准备 / 取消准备 / 站起」
+    - 双方准备 → 服务端开局 → 收到 eventGameStart 后 App 切到对战界面
 -->
 <template>
   <div class="lobby">
-    <div class="lobby-box">
-      <div class="lobby-title">新三国杀</div>
+    <div class="lobby-box lobby-wide">
+      <div class="lobby-title">新三国杀 · 大厅</div>
       <div class="lobby-sub">
-        双人对战 · 联机模式 · 手牌严格隔离<br/>
-        好友打开同一网址即可加入对战
+        5 桌并行 · 选空座坐下 · 双方准备即开局<br/>
+        好友打开同一网址进入同一大厅即可同桌
       </div>
 
       <div class="lobby-url">
@@ -17,19 +19,96 @@
         <button class="btn" @click="copyShareUrl">复制网址</button>
       </div>
 
-      <div class="lobby-status">{{ statusText }}</div>
+      <div v-if="lastError" class="lobby-err">⚠ {{ lastError }}</div>
 
-      <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:6px;">
-        <button class="btn primary" :disabled="connecting" @click="onJoin">
-          {{ connecting ? '连接中...' : (state.yourSlot ? '已加入 · 重新加入' : '加入房间') }}
-        </button>
+      <!-- 5 桌网格 -->
+      <div class="tables-grid">
+        <div
+          v-for="t in state.tables"
+          :key="t.id"
+          class="table-card"
+          :class="{ mine: isMyTable(t), 'is-playing': t.started }"
+        >
+          <div class="table-head">
+            <span class="table-no">桌 {{ t.id }}</span>
+            <span class="table-state" :class="stateClass(t)">{{ stateText(t) }}</span>
+          </div>
+
+          <div class="seats">
+            <!-- p1 -->
+            <div class="seat" :class="seatClass(t, 'p1')">
+              <template v-if="t.p1.name">
+                <div class="seat-name">
+                  {{ isMySeat(t, 'p1') ? '我' : t.p1.name }}
+                  <span v-if="!t.p1.present" class="seat-off" title="掉线重连中">⌛</span>
+                </div>
+                <div class="seat-ready" :class="{ on: t.p1.ready }">
+                  {{ t.p1.ready ? '✓ 已准备' : '未准备' }}
+                </div>
+              </template>
+              <button
+                v-else
+                class="btn seat-sit"
+                :disabled="!canSit(t, 'p1')"
+                @click="onSit(t.id, 'p1')"
+              >＋ 入座</button>
+            </div>
+
+            <div class="vs">VS</div>
+
+            <!-- p2 -->
+            <div class="seat" :class="seatClass(t, 'p2')">
+              <template v-if="t.p2.name">
+                <div class="seat-name">
+                  {{ isMySeat(t, 'p2') ? '我' : t.p2.name }}
+                  <span v-if="!t.p2.present" class="seat-off" title="掉线重连中">⌛</span>
+                </div>
+                <div class="seat-ready" :class="{ on: t.p2.ready }">
+                  {{ t.p2.ready ? '✓ 已准备' : '未准备' }}
+                </div>
+              </template>
+              <button
+                v-else
+                class="btn seat-sit"
+                :disabled="!canSit(t, 'p2')"
+                @click="onSit(t.id, 'p2')"
+              >＋ 入座</button>
+            </div>
+          </div>
+
+          <!-- 我的座位操作区 -->
+          <div v-if="isMyTable(t) && !t.started" class="table-actions">
+            <button
+              v-if="!state.myReady"
+              class="btn primary"
+              :disabled="connecting"
+              @click="onReady"
+            >准备</button>
+            <button
+              v-else
+              class="btn dark"
+              :disabled="connecting"
+              @click="onCancelReady"
+            >取消准备</button>
+            <button class="btn dark" :disabled="connecting" @click="onStandUp">站起</button>
+          </div>
+          <div v-else-if="isMyTable(t) && t.started" class="table-actions">
+            <div class="playing-hint">对局进行中 · 切换到对战界面</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:4px;">
         <button class="btn dark" @click="$emit('exit')">← 返回</button>
       </div>
 
-      <div style="font-size:12px;color:#8E734F;text-align:center;line-height:1.8;margin-top:4px;">
-        <div v-if="lastError" style="color:#B5463A">⚠ {{ lastError }}</div>
-        <div v-if="state.yourSlot">你已分配：<b>{{ state.yourSlot.toUpperCase() }}</b>（玩家 {{ (state.yourPid ?? 0) + 1 }}）</div>
-        <div>对局规则：6 血 6 气 · 104 张牌库 · 兵法倒计时 · 掉血补气</div>
+      <div class="lobby-tip">
+        <div v-if="state.myTableId !== null">
+          你在：<b>桌{{ state.myTableId }} · {{ state.mySlot?.toUpperCase() }}</b>
+          <template v-if="!state.myReady"> · 等待你准备</template>
+        </div>
+        <div v-else>点击任意空座即可入座</div>
+        <div>规则：6 血 6 气 · 104 张牌库 · 兵法倒计时 · 掉血补气</div>
       </div>
     </div>
   </div>
@@ -39,18 +118,13 @@
 import { computed, onMounted } from 'vue';
 import {
   connecting, lastError, state,
-  joinRoom,
+  sitDown, standUp, ready, cancelReady, fetchTableList,
 } from '../store/gameStore';
+import type { Slot, TableSummary } from '../types/protocol';
 
 defineEmits<{ exit: [] }>();
 
 const shareUrl = computed(() => window.location.origin);
-
-const statusText = computed(() => {
-  if (state.started) return '对局进行中 · 点「加入」重连';
-  if (state.yourSlot) return `已加入房间 · 等待对手...`;
-  return '等待玩家加入房间...';
-});
 
 function copyShareUrl(): void {
   const url = window.location.origin;
@@ -65,10 +139,152 @@ function copyShareUrl(): void {
   }
 }
 
-async function onJoin(): Promise<void> { await joinRoom(); }
+// ===== 桌/座位判断 =====
+function isMyTable(t: TableSummary): boolean {
+  return state.myTableId === t.id;
+}
+function isMySeat(t: TableSummary, slot: Slot): boolean {
+  return isMyTable(t) && state.mySlot === slot;
+}
+/** 该座是否可被「我」坐：空座且对局未开始 */
+function canSit(t: TableSummary, slot: Slot): boolean {
+  if (t.started) return false;
+  const seat = slot === 'p1' ? t.p1 : t.p2;
+  return seat.name === null;
+}
 
-onMounted(async () => {
-  // 自动尝试加入房间
-  await joinRoom();
+function stateText(t: TableSummary): string {
+  if (t.started) return '对战中';
+  const occ = (t.p1.name !== null ? 1 : 0) + (t.p2.name !== null ? 1 : 0);
+  if (occ === 0) return '空桌';
+  if (occ === 1) return '等待加入';
+  return '准备中';
+}
+function stateClass(t: TableSummary): string {
+  if (t.started) return 'playing';
+  const occ = (t.p1.name !== null ? 1 : 0) + (t.p2.name !== null ? 1 : 0);
+  if (occ === 0) return 'empty';
+  if (occ === 1) return 'wait';
+  return 'ready';
+}
+
+function seatClass(t: TableSummary, slot: Slot): Record<string, boolean> {
+  const seat = slot === 'p1' ? t.p1 : t.p2;
+  return {
+    occupied: seat.name !== null,
+    mine: isMySeat(t, slot),
+    offline: seat.name !== null && !seat.present,
+  };
+}
+
+// ===== 动作 =====
+async function onSit(tableId: number, slot: Slot): Promise<void> {
+  // 若已在别桌入座，服务端会先清旧座（这里直接 sitDown 即可）
+  await sitDown(tableId, slot);
+}
+async function onStandUp(): Promise<void> {
+  await standUp();
+}
+async function onReady(): Promise<void> {
+  await ready();
+}
+async function onCancelReady(): Promise<void> {
+  await cancelReady();
+}
+
+onMounted(() => {
+  // 兜底拉取一次桌列表（startLan / 重连已触发，这里确保 LobbyScreen 单独挂载时也有数据）
+  fetchTableList();
 });
 </script>
+
+<style scoped>
+.lobby-wide {
+  width: min(96vw, 920px);
+  max-height: 92vh;
+  overflow-y: auto;
+}
+.lobby-err {
+  width: 100%; text-align: center; color: #B5463A; font-size: 13px;
+}
+.tables-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.table-card {
+  background: linear-gradient(180deg, #FFFBEE 0%, #F2E4C2 100%);
+  border: 1px solid #C9A975;
+  border-radius: 12px;
+  padding: 10px 12px 12px;
+  display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 4px 12px rgba(75, 59, 42, 0.12);
+}
+.table-card.mine {
+  border-color: #B5463A;
+  box-shadow: 0 0 0 2px rgba(181, 70, 58, 0.25), 0 4px 12px rgba(75, 59, 42, 0.18);
+}
+.table-card.is-playing {
+  background: linear-gradient(180deg, #EDE0C2 0%, #D9C190 100%);
+}
+.table-head {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.table-no {
+  font-size: 15px; font-weight: 800; color: #4B3B2A; letter-spacing: 1px;
+}
+.table-state {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  background: #B49769; color: #FFF8E4;
+}
+.table-state.playing { background: linear-gradient(#B5463A, #8C3329); }
+.table-state.ready   { background: linear-gradient(#3E6E7A, #2D5460); }
+.table-state.wait    { background: linear-gradient(#8A6D29, #6A521E); }
+.table-state.empty   { background: linear-gradient(#999, #666); }
+
+.seats {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 6px;
+}
+.seat {
+  min-height: 56px;
+  border: 1px dashed #A8864F;
+  border-radius: 8px;
+  background: rgba(255, 251, 238, 0.7);
+  padding: 6px 8px;
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  gap: 2px;
+}
+.seat.occupied { border-style: solid; border-color: #8A7254; }
+.seat.mine { background: rgba(181, 70, 58, 0.10); border-color: #B5463A; }
+.seat.offline { opacity: 0.7; }
+.seat-name {
+  font-size: 13px; font-weight: 700; color: #4B3B2A;
+  display: flex; align-items: center; gap: 4px;
+}
+.seat-off { font-size: 11px; }
+.seat-ready {
+  font-size: 11px; color: #8E734F;
+}
+.seat-ready.on { color: #2D5460; font-weight: 700; }
+.seat-sit {
+  width: 100%; font-size: 13px; padding: 8px 0;
+}
+.vs {
+  font-size: 11px; color: #8E734F; font-weight: 700; text-align: center;
+}
+.table-actions {
+  display: flex; gap: 6px; justify-content: center; flex-wrap: wrap;
+}
+.table-actions .btn { font-size: 13px; padding: 6px 12px; }
+.playing-hint {
+  width: 100%; text-align: center; font-size: 12px; color: #8C3329; font-weight: 700;
+}
+.lobby-tip {
+  font-size: 12px; color: #8E734F; text-align: center; line-height: 1.8;
+  margin-top: 2px;
+}
+</style>

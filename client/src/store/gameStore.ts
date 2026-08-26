@@ -9,7 +9,7 @@ import { getSocket, emit, disconnectSocket } from '../api/socket';
 import { soundManager, type SfxType } from '../audio/SoundManager';
 import { LocalEngine } from '../engine/localEngine';
 import { authUser } from './authStore';
-import type { RoomStateView, Slot, PlayerId, CardView } from '../types/protocol';
+import type { RoomStateView, Slot, PlayerId, CardView, TableSummary } from '../types/protocol';
 
 // ===== 游戏模式 =====
 export type GameMode = 'none' | 'single' | 'lan';
@@ -22,6 +22,7 @@ export const connecting = ref(false);
 export const lastError = ref<string | null>(null);
 
 const SLOT_KEY = 'sanguosha_slot';
+const TABLE_KEY = 'sanguosha_table';
 
 // ===== 桌面出牌展示区 =====
 export interface PlayedCard {
@@ -120,7 +121,18 @@ function sfxForCard(category: string): SfxType {
 }
 
 // ===== 服务端推送的完整房间状态（严格按视角过滤） =====
-export const state = reactive<RoomStateView>({
+/** 大厅联机态（与 RoomStateView 合并存在同一 reactive 上）*/
+export interface LobbyState {
+  /** 5 桌摘要（大厅列表）*/
+  tables: TableSummary[];
+  /** 我所在的桌号（1..5），null=未入座 */
+  myTableId: number | null;
+  /** 我在桌内的座位（p1/p2），null=未入座 */
+  mySlot: Slot | null;
+  /** 我的准备态（仅大厅阶段有效，对局开始后无意义）*/
+  myReady: boolean;
+}
+export const state = reactive<RoomStateView & LobbyState>({
   roomId: '',
   started: false,
   yourSlot: null,
@@ -144,6 +156,11 @@ export const state = reactive<RoomStateView>({
   winner: null,
   gameOverDetail: null,
   logs: [],
+  // 大厅态
+  tables: [],
+  myTableId: null,
+  mySlot: null,
+  myReady: false,
 });
 
 function emptyPlayer(pid: PlayerId, name: string): any {
@@ -200,9 +217,19 @@ export function initStore(): void {
   const socket = getSocket();
   socket.on('connect', () => {
     connected.value = true; connecting.value = false;
+    // 拉取大厅桌列表
+    fetchTableList();
+    // 若有保存的桌号+座位 → 尝试 reclaim 重连（服务端按身份恢复座位）
+    const savedTable = typeof localStorage !== 'undefined' ? localStorage.getItem(TABLE_KEY) : null;
     const savedSlot = (typeof localStorage !== 'undefined' && localStorage.getItem(SLOT_KEY)) as Slot | null;
-    if (savedSlot) {
-      joinRoom().catch(() => {});
+    if (savedTable && savedSlot) {
+      sitDown(Number(savedTable), savedSlot).catch(() => {
+        // 重连失败（桌已重置/座位被占）→ 清掉本地记录，留在大厅
+        if (typeof localStorage !== 'undefined') {
+          localStorage.removeItem(TABLE_KEY);
+          localStorage.removeItem(SLOT_KEY);
+        }
+      });
     }
   });
   socket.on('disconnect', () => {
@@ -212,7 +239,21 @@ export function initStore(): void {
   socket.on('connect_error', (e: any) => { lastError.value = e?.message || '连接失败'; connecting.value = false; });
 
   socket.on('roomState', (s) => { applyRoomState(s); });
+  // ===== 大厅事件 =====
+  socket.on('tableList', (data: TableSummary[]) => {
+    state.tables = data;
+    // 同步我的准备态（防止与服务器不一致）
+    syncMyLobbyState();
+  });
+  socket.on('tableUpdate', (t: TableSummary) => {
+    const idx = state.tables.findIndex(x => x.id === t.id);
+    if (idx >= 0) state.tables.splice(idx, 1, t);
+    else state.tables.push(t);
+    syncMyLobbyState();
+  });
   socket.on('eventGameStart', (d) => {
+    // 对局开始：切到对战界面（roomState 也会随后推送并覆盖 started=true）
+    state.started = true;
     pushToast(`🎮 对局开始 · 先手方：玩家${d.firstPlayerPid + 1}`);
     clearPlayedCards();
   });
@@ -326,7 +367,8 @@ export function startSingle(): void {
 export function startLan(): void {
   gameMode.value = 'lan';
   initStore();
-  joinRoom().catch(() => {});
+  // 进入大厅：拉取桌列表（不自动加入，由玩家选座坐下）
+  fetchTableList();
 }
 
 /** 查询当前用户战绩 */
@@ -364,9 +406,13 @@ export function exitToEntry(): void {
     localEngine.destroy();
     localEngine = null;
   }
+  // 联机模式：尝试站起再断开，让服务端及时腾座
+  if (gameMode.value === 'lan') {
+    try { emit('standUp', {}).catch(() => {}); } catch {}
+  }
   disconnectSocket();
   gameMode.value = 'none';
-  // 清空状态
+  // 清空对战状态
   state.started = false;
   state.yourSlot = null;
   state.yourPid = null;
@@ -377,6 +423,15 @@ export function exitToEntry(): void {
   settlement.value = null;
   if (gameOverDelayTimer) { clearTimeout(gameOverDelayTimer); gameOverDelayTimer = null; }
   clearPlayedCards();
+  // 清空大厅状态
+  state.tables = [];
+  state.myTableId = null;
+  state.mySlot = null;
+  state.myReady = false;
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem(TABLE_KEY);
+    localStorage.removeItem(SLOT_KEY);
+  }
 }
 
 // ===== Action 封装（根据模式分流） =====
@@ -447,25 +502,115 @@ export async function resetRoom(): Promise<{ ok: boolean; msg: string }> {
   return { ok, msg: data?.message || '' };
 }
 
-/** 加入房间（局域网模式） */
-export async function joinRoom(name?: string): Promise<{ ok: boolean; msg: string }> {
+// ===== 大厅 Action（局域网模式）=====
+
+/** 从服务端桌列表同步「我的座位/准备态」到本地 state（防止与服务器不一致）*/
+function syncMyLobbyState(): void {
+  if (state.myTableId === null) {
+    state.mySlot = null;
+    state.myReady = false;
+    return;
+  }
+  const t = state.tables.find(x => x.id === state.myTableId);
+  if (!t) {
+    // 我所在的桌不存在了（被重置等）→ 清本地
+    state.myTableId = null;
+    state.mySlot = null;
+    state.myReady = false;
+    return;
+  }
+  if (state.mySlot === null) return;
+  const seat = state.mySlot === 'p1' ? t.p1 : t.p2;
+  // 我的座位已被清空（掉线太久桌被重置 / 被踢）→ 清本地
+  if (seat.name === null) {
+    state.myTableId = null;
+    state.mySlot = null;
+    state.myReady = false;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(TABLE_KEY);
+      localStorage.removeItem(SLOT_KEY);
+    }
+    return;
+  }
+  state.myReady = seat.ready;
+}
+
+/** 拉取大厅所有桌摘要 */
+export function fetchTableList(): void {
+  const socket = getSocket();
+  if (!socket) return;
+  socket.emit('getTableList', {}, (ok: boolean, data: any) => {
+    if (ok && Array.isArray(data)) {
+      state.tables = data;
+      syncMyLobbyState();
+    }
+  });
+}
+
+/** 在指定桌的指定座位坐下 */
+export async function sitDown(tableId: number, slot: Slot, name?: string): Promise<{ ok: boolean; msg: string }> {
   connecting.value = true;
   try {
     const s = getSocket();
-    if (!s.connected) await new Promise<void>((resolve) => {
-      s.once('connect', () => resolve());
-      setTimeout(() => resolve(), 3500);
-    });
-    const preferSlot = (typeof localStorage !== 'undefined' && localStorage.getItem(SLOT_KEY)) as Slot | null;
-    const { ok, data } = await emit('joinRoom', { name, preferSlot: preferSlot || undefined });
-    if (!ok) { lastError.value = data?.error || '加入房间失败'; return { ok: false, msg: data?.error || '加入房间失败' }; }
-    if (typeof localStorage !== 'undefined' && data.slot) {
+    if (!s.connected) {
+      await new Promise<void>((resolve) => {
+        s.once('connect', () => resolve());
+        setTimeout(() => resolve(), 3500);
+      });
+    }
+    const { ok, data } = await emit('sitDown', { tableId, slot, name });
+    if (!ok) {
+      lastError.value = data?.error || '入座失败';
+      pushToast('❌ ' + (data?.error || '入座失败'));
+      return { ok: false, msg: data?.error || '入座失败' };
+    }
+    state.myTableId = data.tableId;
+    state.mySlot = data.slot;
+    state.myReady = false;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(TABLE_KEY, String(data.tableId));
       localStorage.setItem(SLOT_KEY, data.slot);
     }
-    pushToast(`已加入房间：你是 ${data.slot.toUpperCase()}（玩家${(data.pid as number) + 1}）${preferSlot ? ' · 重连' : ''}`);
-    return { ok: true, msg: '已加入' };
+    pushToast(`已入座 · 桌${data.tableId} ${data.slot.toUpperCase()}（玩家${(data.pid as number) + 1}）`);
+    return { ok: true, msg: '已入座' };
   } finally {
     connecting.value = false;
   }
+}
+
+/** 站起（离开座位）*/
+export async function standUp(): Promise<{ ok: boolean; msg: string }> {
+  const { ok, data } = await emit('standUp', {});
+  if (!ok) return { ok: false, msg: data?.error || '操作失败' };
+  state.myTableId = null;
+  state.mySlot = null;
+  state.myReady = false;
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem(TABLE_KEY);
+    localStorage.removeItem(SLOT_KEY);
+  }
+  return { ok: true, msg: '已站起' };
+}
+
+/** 准备 */
+export async function ready(): Promise<{ ok: boolean; msg: string }> {
+  const { ok, data } = await emit('ready', {});
+  if (!ok) {
+    pushToast('❌ ' + (data?.error || '准备失败'));
+    return { ok: false, msg: data?.error || '准备失败' };
+  }
+  state.myReady = true;
+  return { ok: true, msg: '已准备' };
+}
+
+/** 取消准备 */
+export async function cancelReady(): Promise<{ ok: boolean; msg: string }> {
+  const { ok, data } = await emit('cancelReady', {});
+  if (!ok) {
+    pushToast('❌ ' + (data?.error || '取消失败'));
+    return { ok: false, msg: data?.error || '取消失败' };
+  }
+  state.myReady = false;
+  return { ok: true, msg: '已取消准备' };
 }
 
