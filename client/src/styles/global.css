@@ -155,6 +155,59 @@ a { color: #8C4A40; }
 .gameover-title.draw { color: #8E672A; }
 .gameover-desc { font-size: 14px; color: #5C4A32; margin-bottom: 18px; line-height: 1.7; }
 
+/* 局末结算明细 */
+.settlement-box { margin: 12px 0; padding: 10px 14px; background: rgba(255,255,255,0.4); border-radius: 10px; font-size: 13px; }
+.settlement-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; padding: 4px 0; border-bottom: 1px solid rgba(201,162,39,0.2); }
+.settlement-row.header { font-weight: 700; color: #8B6914; }
+.settlement-row.total { font-weight: 800; border-bottom: none; padding-top: 8px; font-size: 15px; }
+.settlement-row .my-score { color: #B5463A; }
+.settlement-round { text-align: center; margin-top: 6px; font-size: 12px; color: #8E734F; }
+
+/* 用户详情弹窗 */
+.record-card {
+  width: min(92vw, 360px); padding: 24px 20px;
+  background: linear-gradient(180deg, #FFFBEE 0%, #EED9AA 100%);
+  border: 2px solid #C9A227; border-radius: 16px;
+  text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,.3);
+}
+.record-card-title { font-size: 20px; font-weight: 900; color: #3A2E22; margin-bottom: 16px; }
+.record-level { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
+.lv-badge { padding: 4px 12px; border-radius: 999px; font-size: 14px; font-weight: 800; background: linear-gradient(135deg, #C9A84C, #8B6914); color: #FFF4D5; }
+.lv-name { font-size: 16px; font-weight: 700; color: #3A2E22; }
+.record-score { font-size: 15px; font-weight: 700; color: #8B6914; margin-bottom: 14px; }
+.record-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+.record-item { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; background: rgba(255,255,255,0.4); border-radius: 8px; }
+.record-item .label { font-size: 11px; color: #8E734F; }
+.record-item .val { font-size: 18px; font-weight: 800; color: #3A2E22; }
+.record-item .val.win { color: #B5463A; }
+.record-item .val.lose { color: #4A3D2E; }
+.record-next { font-size: 12px; color: #8E734F; margin-bottom: 8px; }
+.record-empty { font-size: 14px; color: #8E734F; padding: 20px 0; }
+.nick-edit-card {
+  width: min(92vw, 320px); padding: 24px 20px;
+  background: linear-gradient(180deg, #FFFBEE 0%, #EED9AA 100%);
+  border: 2px solid #C9A227; border-radius: 16px;
+  text-align: center; box-shadow: 0 24px 60px rgba(0,0,0,.3);
+}
+.nick-edit-card .auth-input { width: 100%; }
+
+/* 个人中心页（模式选择页左上角头像进入） */
+.profile-page { flex: 1; display: flex; flex-direction: column; gap: 12px; padding: 8px; }
+.profile-header { display: flex; align-items: center; gap: 12px; padding: 4px 4px; }
+.profile-title { font-size: 18px; font-weight: 900; color: #3A2E22; }
+.profile-card {
+  display: flex; flex-direction: column; gap: 20px;
+  padding: 20px 16px; margin: 0 auto; width: min(96vw, 460px);
+  background: linear-gradient(180deg, #FFFBEE 0%, #EED9AA 100%);
+  border: 2px solid #C9A227; border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.12);
+}
+.profile-section { display: flex; flex-direction: column; gap: 6px; }
+.profile-section-title { font-size: 15px; font-weight: 800; color: #8B6914; border-left: 3px solid #C9A227; padding-left: 8px; }
+.profile-err { font-size: 12px; color: #B5463A; }
+.profile-section .auth-input { width: 100%; }
+.profile-section .record-grid { grid-template-columns: repeat(3, 1fr); }
+
 /* 退出确认弹窗 */
 .modal-overlay {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -418,6 +471,11 @@ a { color: #8C4A40; }
   box-shadow: inset 0 -4px 0 rgba(0,0,0,.1);
 }
 .avatar.opp { background: linear-gradient(#D7C7B0, #A48F72); border-color: #5C4A32; color: #2E2417; }
+/* 昵称按字数自适应字号（完整显示在圆圈内） */
+.avatar.len-2 { font-size: 20px; }
+.avatar.len-4 { font-size: 13px; }
+.avatar.len-6 { font-size: 10px; }
+.avatar.len-long { font-size: 8px; }
 
 /* 阵法效果指示器 */
 .formation-fx {
@@ -448,7 +506,22 @@ a { color: #8C4A40; }
 }
 
 /* 头像旁手牌数徽章 */
-.avatar-wrap { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.avatar-wrap { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer; }
+.avatar-wrap.no-click { cursor: not-allowed; opacity: .6; pointer-events: none; }
+.score-badge {
+  position: absolute;
+  top: -6px; right: -10px;
+  min-width: 22px; height: 18px;
+  padding: 0 5px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700;
+  background: linear-gradient(135deg, #C9A84C, #8B6914);
+  color: #FFF4D5;
+  border: 1px solid #FFE08A;
+  border-radius: 9px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  z-index: 2;
+}
 .hand-badge {
   position: absolute;
   right: -8px; bottom: -4px;

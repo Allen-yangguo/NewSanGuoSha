@@ -19,11 +19,57 @@
     <div v-else-if="!authReady" style="flex:1;display:flex;align-items:center;justify-content:center;color:#8E734F;">加载中...</div>
     <!-- 已登录未选模式 → 入口选择页(带身份栏) -->
     <template v-else-if="gameMode === 'none'">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;gap:8px;">
-        <span style="font-size:12px;color:#8E734F;">👤 {{ displayName }}</span>
-        <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="onLogout">退出登录</button>
+      <!-- 个人中心页（点击头像进入） -->
+      <div v-if="showProfile" class="profile-page">
+        <div class="profile-header">
+          <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="showProfile = false">← 返回</button>
+          <div class="profile-title">个人中心</div>
+        </div>
+        <div class="profile-card">
+          <!-- 昵称编辑 -->
+          <div class="profile-section">
+            <div class="profile-section-title">我的昵称</div>
+            <input v-model="editingNick" class="auth-input" placeholder="输入昵称(最多12字)" maxlength="12" style="margin:8px 0;" />
+            <div v-if="nickErrMsg" class="profile-err">{{ nickErrMsg }}</div>
+            <button class="btn primary" :disabled="nicknameSaving" @click="onSaveNickname" style="margin-top:8px;">{{ nicknameSaving ? '保存中...' : '保存昵称' }}</button>
+          </div>
+          <!-- 战绩详情 -->
+          <div class="profile-section">
+            <div class="profile-section-title">我的战绩</div>
+            <template v-if="recordSummary">
+              <div class="record-level">
+                <span class="lv-badge">Lv{{ recordSummary.level }}</span>
+                <span class="lv-name">{{ recordSummary.levelName }}</span>
+              </div>
+              <div class="record-score">累计积分：{{ recordSummary.totalScore }}</div>
+              <div class="record-grid">
+                <div class="record-item"><span class="label">对局</span><span class="val">{{ recordSummary.totalGames }}</span></div>
+                <div class="record-item"><span class="label">胜</span><span class="val win">{{ recordSummary.wins }}</span></div>
+                <div class="record-item"><span class="label">负</span><span class="val lose">{{ recordSummary.losses }}</span></div>
+                <div class="record-item"><span class="label">平</span><span class="val">{{ recordSummary.draws }}</span></div>
+                <div class="record-item"><span class="label">胜率</span><span class="val">{{ recordSummary.winRate }}%</span></div>
+                <div class="record-item"><span class="label">一血</span><span class="val">{{ recordSummary.firstBloods }}</span></div>
+              </div>
+              <div class="record-next" v-if="recordSummary.nextLevelScore > 0">
+                距离下个级别还需 {{ recordSummary.nextLevelScore }} 分
+              </div>
+            </template>
+            <div v-else class="record-empty">暂无战绩记录</div>
+          </div>
+        </div>
       </div>
-      <EntryScreen @select="onSelectMode" />
+      <!-- 模式选择页 -->
+      <template v-else>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;gap:8px;">
+          <span
+            style="font-size:12px;color:#8E734F;"
+            :style="isGuest ? { cursor: 'not-allowed', opacity: '.5' } : { cursor: 'pointer' }"
+            @click="onTopAvatarClick"
+          >👤 {{ displayName }}</span>
+          <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="onLogout">退出登录</button>
+        </div>
+        <EntryScreen @select="onSelectMode" />
+      </template>
     </template>
 
     <!-- 局域网大厅（选了局域网但还没加入房间） -->
@@ -73,10 +119,13 @@
         <PlayerPanel
           :player="state.opponent"
           :me="false"
+          :ai-opponent="gameMode === 'single'"
           :first-player-pid="state.firstPlayerPid"
           :active-pid="state.activePid"
           :defense-pid="state.defensePid"
           :emergency-pid="state.emergencyHealPid"
+          :combat-scores="state.combatScores"
+          @avatar-click="onAvatarClick"
         />
 
         <!-- 桌面展示区（出牌区） -->
@@ -180,6 +229,8 @@
           :active-pid="state.activePid"
           :defense-pid="state.defensePid"
           :emergency-pid="state.emergencyHealPid"
+          :combat-scores="state.combatScores"
+          @avatar-click="onAvatarClick"
         />
 
       </template>
@@ -222,10 +273,51 @@
       <div class="gameover-card">
         <div class="gameover-title" :class="gameOverClass">{{ gameOverTitle }}</div>
         <div class="gameover-desc">{{ state.gameOverDetail }}</div>
+        <!-- 局末结算明细 -->
+        <div class="settlement-box" v-if="settlement">
+          <div class="settlement-row header">
+            <span>项目</span><span>我方</span><span>对方</span>
+          </div>
+          <div class="settlement-row"><span>战斗分</span><span>{{ settlement.breakdown[state.yourPid ?? 0].combatScore }}</span><span>{{ settlement.breakdown[(state.yourPid ?? 0) === 0 ? 1 : 0].combatScore }}</span></div>
+          <div class="settlement-row"><span>一血</span><span>{{ settlement.breakdown[state.yourPid ?? 0].firstBlood }}</span><span>{{ settlement.breakdown[(state.yourPid ?? 0) === 0 ? 1 : 0].firstBlood }}</span></div>
+          <div class="settlement-row"><span>胜利分</span><span>{{ settlement.breakdown[state.yourPid ?? 0].victoryBonus }}</span><span>{{ settlement.breakdown[(state.yourPid ?? 0) === 0 ? 1 : 0].victoryBonus }}</span></div>
+          <div class="settlement-row"><span>速胜奖励</span><span>{{ settlement.breakdown[state.yourPid ?? 0].speedBonus }}</span><span>{{ settlement.breakdown[(state.yourPid ?? 0) === 0 ? 1 : 0].speedBonus }}</span></div>
+          <div class="settlement-row"><span>残血奖励</span><span>{{ settlement.breakdown[state.yourPid ?? 0].hpBonus }}</span><span>{{ settlement.breakdown[(state.yourPid ?? 0) === 0 ? 1 : 0].hpBonus }}</span></div>
+          <div class="settlement-row"><span>失败扣分</span><span>{{ settlement.breakdown[state.yourPid ?? 0].lossPenalty }}</span><span>{{ settlement.breakdown[(state.yourPid ?? 0) === 0 ? 1 : 0].lossPenalty }}</span></div>
+          <div class="settlement-row total"><span>合计</span><span class="my-score">{{ settlement.scores[state.yourPid ?? 0] }}</span><span>{{ settlement.scores[(state.yourPid ?? 0) === 0 ? 1 : 0] }}</span></div>
+          <div class="settlement-round">回合数：{{ settlement.roundCount }}</div>
+        </div>
         <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
           <button class="btn primary" @click="resetRoom">再来一局</button>
           <button class="btn dark" @click="exitToEntry">休息去了</button>
         </div>
+      </div>
+    </div>
+
+    <!-- 用户详情弹窗（点击头像） -->
+    <div class="modal-overlay" v-if="showRecordDetail" @click.self="showRecordDetail = false">
+      <div class="record-card">
+        <div class="record-card-title">战绩详情</div>
+        <template v-if="viewingRecord">
+          <div class="record-level">
+            <span class="lv-badge">Lv{{ viewingRecord.level }}</span>
+            <span class="lv-name">{{ viewingRecord.levelName }}</span>
+          </div>
+          <div class="record-score">累计积分：{{ viewingRecord.totalScore }}</div>
+          <div class="record-grid">
+            <div class="record-item"><span class="label">对局</span><span class="val">{{ viewingRecord.totalGames }}</span></div>
+            <div class="record-item"><span class="label">胜</span><span class="val win">{{ viewingRecord.wins }}</span></div>
+            <div class="record-item"><span class="label">负</span><span class="val lose">{{ viewingRecord.losses }}</span></div>
+            <div class="record-item"><span class="label">平</span><span class="val">{{ viewingRecord.draws }}</span></div>
+            <div class="record-item"><span class="label">胜率</span><span class="val">{{ viewingRecord.winRate }}%</span></div>
+            <div class="record-item"><span class="label">一血</span><span class="val">{{ viewingRecord.firstBloods }}</span></div>
+          </div>
+          <div class="record-next" v-if="viewingRecord.nextLevelScore > 0">
+            距离下个级别还需 {{ viewingRecord.nextLevelScore }} 分
+          </div>
+        </template>
+        <div v-else class="record-empty">暂无战绩记录</div>
+        <button class="btn dark" @click="showRecordDetail = false" style="margin-top:12px;">关闭</button>
       </div>
     </div>
 
@@ -255,14 +347,14 @@ import VictoryAnim from './components/VictoryAnim.vue';
 import DefeatAnim from './components/DefeatAnim.vue';
 import { soundManager } from './audio/SoundManager';
 import {
-  state, toastLogs, isMyTurn, isAwaitingDefense, isEmergencyHealing,
+  state, toastLogs, pushToast, isMyTurn, isAwaitingDefense, isEmergencyHealing,
   canEndTurn, canConfirmDefend, canGiveUpHeal, playedCards, gameMode,
   initStore, startSingle, startLan, exitToEntry,
   useBonus, confirmDefend, giveUpHeal, endAction, playCard, resetRoom,
-  ultimateAnimating, gameOverAnimating,
+  ultimateAnimating, gameOverAnimating, settlement, recordSummary, fetchRecord, submitSettlement, viewingRecord, fetchRecordByPid,
 } from './store/gameStore';
-import { authed, authUser, logout, restoreAuth } from './store/authStore';
-import type { CardView, CardCategory } from './types/protocol';
+import { authed, authUser, logout, restoreAuth, isGuest, updateNickname } from './store/authStore';
+import type { CardView, CardCategory, PlayerId } from './types/protocol';
 
 // ===== 模式选择 =====
 function onSelectMode(mode: 'single' | 'lan'): void {
@@ -297,6 +389,55 @@ function toggleMute(): void {
 
 // ===== 日志弹窗 =====
 const showLogs = ref(false);
+
+// ===== 用户详情弹窗 =====
+const showRecordDetail = ref(false);
+const showProfile = ref(false);
+const editingNick = ref('');
+const nicknameSaving = ref(false);
+const nickErrMsg = ref('');
+
+function onAvatarClick(pid?: PlayerId): void {
+  // 战斗界面头像点击：登录用户显示该玩家战绩，游客提示注册方可使用更多功能
+  if (isGuest.value) {
+    pushToast('注册登录后可使用更多功能');
+    return;
+  }
+  // 点自己头像：直接复用已查询的 recordSummary（单机模式 room 无 userId，按 pid 查会失败）
+  // 点对手头像：按 pid 查询对方战绩
+  if (pid !== undefined && pid !== state.yourPid) {
+    fetchRecordByPid(pid);
+  } else {
+    viewingRecord.value = recordSummary.value;
+  }
+  showRecordDetail.value = true;
+}
+
+function onTopAvatarClick(): void {
+  // 左上角头像点击：进入个人中心（含昵称编辑 + 战绩），游客提示注册
+  if (isGuest.value) {
+    pushToast('注册登录后可使用更多功能');
+    return;
+  }
+  editingNick.value = authUser.value?.nickname || '';
+  nickErrMsg.value = '';
+  fetchRecord(); // 进入个人中心时刷新自己战绩
+  showProfile.value = true;
+}
+
+async function onSaveNickname(): Promise<void> {
+  const nick = editingNick.value.trim();
+  if (!nick) { nickErrMsg.value = '昵称不能为空'; return; }
+  if (nick.length > 12) { nickErrMsg.value = '昵称最多 12 字'; return; }
+  nicknameSaving.value = true;
+  const ok = await updateNickname(nick);
+  nicknameSaving.value = false;
+  if (ok) {
+    pushToast('昵称修改成功');
+  } else {
+    nickErrMsg.value = '修改失败，请重试';
+  }
+}
 
 // ===== 退出确认 =====
 const showExitConfirm = ref(false);
@@ -435,7 +576,7 @@ const displayName = computed(() => {
   const u = authUser.value;
   if (!u) return '';
   if (u.role === 'guest') return '游客';
-  return u.phone || '用户';
+  return u.nickname || u.phone || '用户';
 });
 
 function onLogout(): void {
@@ -452,6 +593,19 @@ watch(() => state.you.handCards.length, (n) => {
     endAction();
   } else if (n > 0) {
     autoEndedFlag.value = false;
+  }
+});
+
+// ===== 战绩系统：单机结算提交 + 进入游戏查询战绩 =====
+watch(settlement, (s) => {
+  if (s && gameMode.value === 'single' && state.yourPid !== null) {
+    submitSettlement(s, state.yourPid);
+  }
+});
+
+watch(gameMode, (mode) => {
+  if (mode === 'single' || mode === 'lan') {
+    fetchRecord();
   }
 });
 

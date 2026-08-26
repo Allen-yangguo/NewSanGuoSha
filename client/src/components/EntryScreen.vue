@@ -3,7 +3,7 @@
 -->
 <template>
   <div class="entry-wrap">
-    <div class="entry-title">三国卡牌对战</div>
+    <div class="entry-title">新三国杀</div>
     <div class="entry-sub">选择对战模式</div>
     <div class="entry-cards">
       <button class="entry-card single" @click="$emit('select', 'single')">

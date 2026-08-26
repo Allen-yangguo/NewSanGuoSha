@@ -176,3 +176,35 @@ export interface ActionContext {
 
 /** 卡牌效果函数签名 */
 export type CardEffectFn = (card: CardInstance, ctx: ActionContext) => void;
+
+// ===== 战绩得分追踪 =====
+/** 单局得分追踪（引擎内部维护，局末结算用） */
+export interface ScoreTracker {
+  /** 一血归属（本局第一次成功攻击），null=尚未 */
+  firstBloodPid: PlayerId | null;
+  /** 各玩家成功攻击次数 */
+  attackHits: [number, number];
+  /** 各玩家绝杀次数 */
+  ultimateKills: [number, number];
+  /** 各玩家战斗得分（攻击分累计） */
+  combatScore: [number, number];
+}
+
+/** 局末结算明细 */
+export interface GameSettlement {
+  /** 胜利方 pid（null=平局） */
+  winner: PlayerId | null;
+  /** 各玩家最终得分（正数） */
+  scores: [number, number];
+  /** 得分明细 */
+  breakdown: {
+    combatScore: number;      // 战斗分（攻击命中累计）
+    firstBlood: number;       // 一血奖励
+    victoryBonus: number;     // 胜利基础分
+    speedBonus: number;      // 快速胜利奖励
+    hpBonus: number;         // 剩余血量奖励
+    lossPenalty: number;      // 失败扣分（负数）
+  }[];
+  /** 本局回合数 */
+  roundCount: number;
+}

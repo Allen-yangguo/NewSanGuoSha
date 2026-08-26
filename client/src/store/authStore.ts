@@ -4,13 +4,14 @@
  */
 import { ref, computed } from 'vue';
 import {
-  getToken, setToken, clearToken, fetchMe,
+  getToken, setToken, clearToken, fetchMe, updateNicknameApi,
   type UserInfo,
 } from '../api/auth';
 
 export const authUser = ref<UserInfo | null>(null);
 export const authed = computed(() => authUser.value !== null);
 export const isGuest = computed(() => authUser.value?.role === 'guest');
+export const nickname = computed(() => authUser.value?.nickname || '');
 
 /** 保存登录结果(token + user) */
 export function saveAuth(token: string, user: UserInfo): void {
@@ -44,4 +45,14 @@ export async function restoreAuth(): Promise<void> {
 /** 获取当前 token(socket 连接鉴权用) */
 export function currentToken(): string | null {
   return getToken();
+}
+
+/** 修改昵称 */
+export async function updateNickname(nick: string): Promise<boolean> {
+  const r = await updateNicknameApi(nick);
+  if (r.ok && r.user) {
+    authUser.value = r.user;
+    return true;
+  }
+  return false;
 }

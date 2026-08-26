@@ -6,7 +6,7 @@
 <template>
   <div class="lobby">
     <div class="lobby-box">
-      <div class="lobby-title">三国卡牌对战</div>
+      <div class="lobby-title">新三国杀</div>
       <div class="lobby-sub">
         双人对战 · 联机模式 · 手牌严格隔离<br/>
         好友打开同一网址即可加入对战

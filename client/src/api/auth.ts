@@ -7,6 +7,8 @@ export type UserRole = 'user' | 'guest';
 export interface UserInfo {
   uid: string;
   phone?: string;
+  username?: string;
+  nickname?: string;
   role: UserRole;
 }
 
@@ -63,12 +65,28 @@ export function sendCode(phone: string, purpose: 'register' | 'reset'): Promise<
   return postJson('/api/auth/send-code', { phone, purpose });
 }
 
-export function registerApi(phone: string, password: string, code: string): Promise<AuthResponse> {
-  return postJson('/api/auth/register', { phone, password, code });
+/** 手机号注册(需短信验证码) */
+export function registerApi(phone: string, password: string, code: string, nickname?: string): Promise<AuthResponse> {
+  return postJson('/api/auth/register', { phone, password, code, nickname });
 }
 
-export function loginApi(phone: string, password: string): Promise<AuthResponse> {
-  return postJson('/api/auth/login', { phone, password });
+/** 用户名注册(无需验证码) */
+export function registerByUsernameApi(username: string, password: string, nickname?: string): Promise<AuthResponse> {
+  return postJson('/api/auth/register', { username, password, nickname });
+}
+
+export function updateNicknameApi(nickname: string): Promise<AuthResponse> {
+  const token = getToken();
+  return fetch('/api/auth/nickname', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ nickname }),
+  }).then(r => r.json()).catch(() => ({ ok: false, message: '网络错误' }));
+}
+
+/** 登录(account 支持手机号或用户名) */
+export function loginApi(account: string, password: string): Promise<AuthResponse> {
+  return postJson('/api/auth/login', { account, password });
 }
 
 export function resetPasswordApi(phone: string, code: string, newPassword: string): Promise<AuthResponse> {

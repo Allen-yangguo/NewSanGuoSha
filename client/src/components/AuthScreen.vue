@@ -1,12 +1,14 @@
 <!--
   用户认证页:登录 / 注册 / 忘记密码 + 游客入口
+  注册支持两种模式:手机号(短信验证码) / 用户名(免验证码)
   登录成功后写入 authStore,App.vue 据 authed 自动切换到模式选择页
 -->
 <template>
   <div class="auth-wrap">
     <div class="auth-card">
-      <div class="auth-title">三国卡牌对战</div>
+      <div class="auth-title">新三国杀</div>
       <div class="auth-sub">请登录后开始对战</div>
+      <div class="guide-entry" @click="showGuide = true">📖 游戏说明</div>
 
       <div class="auth-tabs">
         <button :class="['auth-tab', { active: mode === 'login' }]" @click="switchMode('login')">登录</button>
@@ -14,16 +16,33 @@
         <button :class="['auth-tab', { active: mode === 'reset' }]" @click="switchMode('reset')">忘记密码</button>
       </div>
 
-      <!-- 手机号 -->
-      <input v-model="phone" class="auth-input" placeholder="手机号" maxlength="11" inputmode="numeric" />
+      <!-- 登录:账号(手机号或用户名) -->
+      <input v-if="mode === 'login'" v-model="account" class="auth-input" placeholder="手机号 / 用户名" maxlength="16" />
 
-      <!-- 验证码(注册/重置) -->
-      <div v-if="mode !== 'login'" class="auth-row">
+      <!-- 注册:模式切换 -->
+      <div v-if="mode === 'register'" class="reg-mode-tabs">
+        <button :class="['reg-mode-tab', 'reg-disabled']" @click="switchRegMode('phone')">手机号注册</button>
+        <button :class="['reg-mode-tab', { active: regMode === 'username' }]" @click="switchRegMode('username')">用户名注册</button>
+      </div>
+
+      <!-- 手机号注册:手机号 -->
+      <input v-if="mode === 'register' && regMode === 'phone'" v-model="phone" class="auth-input" placeholder="手机号" maxlength="11" inputmode="numeric" />
+      <!-- 用户名注册:用户名 -->
+      <input v-if="mode === 'register' && regMode === 'username'" v-model="username" class="auth-input" placeholder="用户名(3-16位,字母/数字/_)" maxlength="16" />
+
+      <!-- 昵称(注册) -->
+      <input v-if="mode === 'register'" v-model="nick" class="auth-input" placeholder="昵称(选填,最多12字)" maxlength="12" />
+
+      <!-- 验证码(手机号注册 / 重置) -->
+      <div v-if="(mode === 'register' && regMode === 'phone') || mode === 'reset'" class="auth-row">
         <input v-model="code" class="auth-input code-input" placeholder="短信验证码" maxlength="6" inputmode="numeric" />
         <button class="btn dark code-btn" :disabled="countdown > 0 || sending" @click="onSendCode">
           {{ countdown > 0 ? `${countdown}s` : '发送验证码' }}
         </button>
       </div>
+
+      <!-- 重置:手机号 -->
+      <input v-if="mode === 'reset'" v-model="phone" class="auth-input" placeholder="手机号" maxlength="11" inputmode="numeric" />
 
       <!-- 登录密码 / 注册密码 -->
       <input v-if="mode !== 'reset'" v-model="password" type="password" class="auth-input" :placeholder="mode === 'register' ? '密码(≥8位,字母+数字)' : '密码'" />
@@ -48,25 +67,35 @@
       <div class="auth-divider"><span>或</span></div>
       <button class="btn gold auth-guest" :disabled="loading" @click="onGuest">游客进入</button>
 
-      <div class="auth-tip">开发环境验证码固定为 123456(控制台可见)</div>
+      <div class="auth-tip">用户名注册免验证码 · 登录支持手机号或用户名</div>
     </div>
+
+    <!-- 游戏说明弹层(未登录可查看) -->
+    <GameGuide v-if="showGuide" @close="showGuide = false" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue';
 import {
-  sendCode, registerApi, loginApi, resetPasswordApi, guestLoginApi,
+  sendCode, registerApi, registerByUsernameApi, loginApi, resetPasswordApi, guestLoginApi,
 } from '../api/auth';
 import { saveAuth } from '../store/authStore';
+import GameGuide from './GameGuide.vue';
 
 type Mode = 'login' | 'register' | 'reset';
+type RegMode = 'phone' | 'username';
 const mode = ref<Mode>('login');
-const phone = ref('');
+const regMode = ref<RegMode>('username');
+const account = ref('');   // 登录账号(手机号或用户名)
+const phone = ref('');     // 注册/重置 手机号
+const username = ref('');  // 注册 用户名
 const password = ref('');
 const confirm = ref('');
 const code = ref('');
 const newPassword = ref('');
+const nick = ref('');
+const showGuide = ref(false);
 
 const errMsg = ref('');
 const okMsg = ref('');
@@ -84,14 +113,30 @@ const submitText = computed(() => {
 
 function switchMode(m: Mode): void {
   mode.value = m;
+  account.value = '';
   phone.value = '';
+  username.value = '';
   password.value = '';
   confirm.value = '';
   code.value = '';
   newPassword.value = '';
+  nick.value = '';
   errMsg.value = '';
   okMsg.value = '';
   hintCode.value = '';
+}
+
+function switchRegMode(m: RegMode): void {
+  if (m === 'phone') {
+    // 手机号注册暂不开放,提示并保持用户名注册
+    errMsg.value = '暂不开放手机号注册,请使用用户名注册';
+    return;
+  }
+  regMode.value = m;
+  errMsg.value = '';
+  okMsg.value = '';
+  hintCode.value = '';
+  code.value = '';
 }
 
 function startCountdown(): void {
@@ -122,12 +167,14 @@ async function onSubmit(): Promise<void> {
   loading.value = true;
   try {
     if (mode.value === 'login') {
-      const r = await loginApi(phone.value, password.value);
+      const r = await loginApi(account.value, password.value);
       if (!r.ok || !r.token || !r.user) { errMsg.value = r.message; return; }
       saveAuth(r.token, r.user);
     } else if (mode.value === 'register') {
       if (password.value !== confirm.value) { errMsg.value = '两次密码不一致'; return; }
-      const r = await registerApi(phone.value, password.value, code.value);
+      const r = regMode.value === 'username'
+        ? await registerByUsernameApi(username.value, password.value, nick.value)
+        : await registerApi(phone.value, password.value, code.value, nick.value);
       if (!r.ok || !r.token || !r.user) { errMsg.value = r.message; return; }
       saveAuth(r.token, r.user);
     } else {
@@ -213,6 +260,33 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
   background: #B5463A;
   color: #fff;
 }
+.reg-mode-tabs {
+  display: flex;
+  gap: 4px;
+  background: #F3E4C6;
+  border-radius: 6px;
+  padding: 2px;
+}
+.reg-mode-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: #8E734F;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 0;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.reg-mode-tab.active {
+  background: #8E734F;
+  color: #fff;
+}
+.reg-mode-tab.reg-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .auth-input {
   width: 100%;
   box-sizing: border-box;
@@ -287,4 +361,14 @@ onUnmounted(() => { if (timer) clearInterval(timer); });
   text-align: center;
   margin-top: 2px;
 }
+.guide-entry {
+  text-align: center;
+  font-size: 12px;
+  color: #8E734F;
+  cursor: pointer;
+  margin-top: -2px;
+  margin-bottom: 4px;
+  text-decoration: underline;
+}
+.guide-entry:hover { color: #B5463A; }
 </style>

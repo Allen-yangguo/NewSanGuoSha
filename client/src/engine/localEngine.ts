@@ -46,6 +46,7 @@ export interface LocalEventCallbacks {
   onEventDamage: (d: { actorPid?: PlayerId; message: string }) => void;
   onEventBuffChange: (d: { actorPid: PlayerId; type: string; message: string }) => void;
   onEventGameOver: (d: { winner: PlayerId | null; reason: string | null; detail: string | null }) => void;
+  onEventGameSettlement: (d: any) => void;
   onEventTurnEnd: (d: { nextRoundCount: number; nextFirstPid: PlayerId }) => void;
   onEventGameStart: (d: { firstPlayerPid: PlayerId }) => void;
   onEventRoomReset: () => void;
@@ -58,9 +59,12 @@ export class LocalEngine {
   private engine: GameEngine;
   private cb: LocalEventCallbacks;
   private aiTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 玩家(自己)的显示名，默认"我"，登录用户可传昵称 */
+  private myName: string;
 
-  constructor(cb: LocalEventCallbacks) {
+  constructor(cb: LocalEventCallbacks, myName: string = '我') {
     this.cb = cb;
+    this.myName = myName;
     this.engine = new GameEngine();
   }
 
@@ -476,7 +480,7 @@ export class LocalEngine {
       if (r.ok) {
         this.firePlayCardEvent(AI_PID, bagua, r);
         this.pushState();
-        // 八卦阵后需继续防御（反弹后 A 可出防具，但这里 AI 简化：直接确认防御）
+        // 八卦阵反弹后防御方切换为原攻击方(玩家),AI 交由 aiDefendContinue 处理后续(自动结算或等玩家出防具)
         setTimeout(() => this.aiDefendContinue(), 1000);
         return;
       }
@@ -506,11 +510,17 @@ export class LocalEngine {
     this.aiConfirmDefend();
   }
 
-  /** AI 防御后确认 */
+  /** AI 防御后续（AI 出多张防具 / 八卦阵反弹后调用） */
   private aiDefendContinue(): void {
-    // 再看是否需要出更多防具
     const atk = this.engine.pendingAttack;
-    if (!atk) { this.aiConfirmDefend(); return; }
+    if (!atk) { return; }
+    // 八卦阵反弹后防御方切换为原攻击方:若变为人类玩家,AI 不代为操作
+    // 交给 tryAutoDefendResolve(玩家无防具/八卦阵时自动承受;有则留待玩家手动出防具)
+    if (atk.defender === HUMAN_PID) {
+      this.tryAutoDefendResolve();
+      return;
+    }
+    // 防御方仍是 AI → 再看是否需要出更多防具
     const remaining = atk.damage - this.engine.defensePool;
     if (remaining > 0 && this.engine.state.players[AI_PID].hp - remaining <= 0) {
       // 还会死 → 再找防具
@@ -576,6 +586,7 @@ export class LocalEngine {
       firstPlayerPid: s.firstPlayer,
       guiBeiProtectorPid: this.engine.guiBeiProtector,
       guiBeiRemainingTurns: this.engine.guiBeiRemainingTurns,
+      combatScores: [this.engine.scoreTracker.combatScore[0], this.engine.scoreTracker.combatScore[1]] as [number, number],
       deckCount: s.deck.length,
       discardCount: s.discard.length,
       actionEnded: [s.actionEnded[0], s.actionEnded[1]],
@@ -591,7 +602,7 @@ export class LocalEngine {
   private mapPlayer(p: PlayerState, showHand: boolean): PlayerView {
     return {
       pid: p.id,
-      name: p.id === HUMAN_PID ? '我' : 'AI 对手',
+      name: p.id === HUMAN_PID ? this.myName : 'AI 对手',
       hp: p.hp,
       hpMax: 12,
       qi: p.qi,
@@ -672,6 +683,8 @@ export class LocalEngine {
       reason: s.result?.reason ?? null,
       detail: s.result?.detail ?? null,
     });
+    // 结算事件
+    this.cb.onEventGameSettlement(this.engine.getSettlement());
     const winner = s.result?.winner ?? null;
     if (winner === HUMAN_PID) this.playSfx('win');
     else if (winner === null) this.playSfx('draw');

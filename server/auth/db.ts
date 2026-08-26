@@ -22,13 +22,17 @@ interface DBData {
   users: UserRow[];
   sms_codes: SmsCodeRow[];
   guests: { guest_id: string; created_at: string; last_active: string }[];
+  records: Record<string, RecordRow>;
   nextId: { users: number; sms_codes: number };
 }
 
 export interface UserRow {
   id: number;
   phone: string;
+  /** 用户名(用户名注册模式填写;手机号注册用户为空字符串) */
+  username: string;
   password_hash: string;
+  nickname: string;
   created_at: string;
   updated_at: string;
 }
@@ -39,7 +43,7 @@ function loadData(): DBData {
   if (_data) return _data;
   if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
   if (!fs.existsSync(DB_PATH)) {
-    const fresh: DBData = { users: [], sms_codes: [], guests: [], nextId: { users: 1, sms_codes: 1 } };
+    const fresh: DBData = { users: [], sms_codes: [], guests: [], records: {}, nextId: { users: 1, sms_codes: 1 } };
     _data = fresh;
     saveData();
     return _data;
@@ -52,8 +56,14 @@ function loadData(): DBData {
     if (!parsed.sms_codes) parsed.sms_codes = [];
     if (!parsed.guests) parsed.guests = [];
     if (!parsed.nextId) parsed.nextId = { users: 1, sms_codes: 1 };
+    if (!parsed.records) parsed.records = {};
+    // 兼容旧数据：为缺少 nickname/username 的用户补默认值
+    for (const u of parsed.users) {
+      if (!u.nickname) u.nickname = `玩家${u.id}`;
+      if (u.username === undefined) u.username = '';
+    }
   } catch {
-    parsed = { users: [], sms_codes: [], guests: [], nextId: { users: 1, sms_codes: 1 } };
+    parsed = { users: [], sms_codes: [], guests: [], records: {}, nextId: { users: 1, sms_codes: 1 } };
   }
   _data = parsed;
   return _data;
@@ -75,23 +85,44 @@ export function findUserByPhone(phone: string): UserRow | undefined {
   return loadData().users.find(u => u.phone === phone);
 }
 
+export function findUserByUsername(username: string): UserRow | undefined {
+  return loadData().users.find(u => u.username === username);
+}
+
+/** 按账号查找(手机号或用户名,用于登录) */
+export function findUserByAccount(account: string): UserRow | undefined {
+  return loadData().users.find(u => u.phone === account || u.username === account);
+}
+
 export function findUserById(id: number): UserRow | undefined {
   return loadData().users.find(u => u.id === id);
 }
 
-export function createUser(phone: string, passwordHash: string): UserRow {
+export function createUser(phone: string, passwordHash: string, nickname: string, username: string = ''): UserRow {
   const data = loadData();
   const now = new Date().toISOString();
   const row: UserRow = {
     id: data.nextId.users++,
     phone,
+    username,
     password_hash: passwordHash,
+    nickname: nickname || `玩家${data.nextId.users}`,
     created_at: now,
     updated_at: now,
   };
   data.users.push(row);
   saveData();
   return row;
+}
+
+export function updateUserNickname(id: number, nickname: string): void {
+  const data = loadData();
+  const user = data.users.find(u => u.id === id);
+  if (user) {
+    user.nickname = nickname;
+    user.updated_at = new Date().toISOString();
+    saveData();
+  }
 }
 
 export function updateUserPassword(phone: string, passwordHash: string): void {
@@ -148,4 +179,40 @@ export function markSmsCodeConsumed(id: number): void {
     row.consumed = true;
     saveData();
   }
+}
+
+// ===== 用户战绩表 =====
+export interface RecordRow {
+  uid: string;
+  totalGames: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  totalScore: number;
+  firstBloods: number;
+  successfulAttacks: number;
+  ultimateKills: number;
+}
+
+function emptyRecord(uid: string): RecordRow {
+  return {
+    uid, totalGames: 0, wins: 0, losses: 0, draws: 0,
+    totalScore: 0, firstBloods: 0, successfulAttacks: 0, ultimateKills: 0,
+  };
+}
+
+export function getRecord(uid: string): RecordRow {
+  const data = loadData();
+  if (!data.records[uid]) {
+    data.records[uid] = emptyRecord(uid);
+    saveData();
+  }
+  return data.records[uid];
+}
+
+export function updateRecord(uid: string, patch: Partial<RecordRow>): void {
+  const data = loadData();
+  if (!data.records[uid]) data.records[uid] = emptyRecord(uid);
+  Object.assign(data.records[uid], patch);
+  saveData();
 }

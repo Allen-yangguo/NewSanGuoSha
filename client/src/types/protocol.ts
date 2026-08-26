@@ -73,6 +73,8 @@ export interface RoomStateView {
   guiBeiProtectorPid: PlayerId | null;
   /** 龟背阵剩余持续回合数 */
   guiBeiRemainingTurns: number;
+  /** 双方实时战斗分（攻击命中累计） */
+  combatScores: [number, number];
   deckCount: number;
   discardCount: number;
   /** 双方是否已结束行动 */
@@ -85,6 +87,36 @@ export interface RoomStateView {
   logs: string[];
 }
 
+// ===== 局末结算 =====
+export interface SettlementBreakdown {
+  combatScore: number;
+  firstBlood: number;
+  victoryBonus: number;
+  speedBonus: number;
+  hpBonus: number;
+  lossPenalty: number;
+}
+
+export interface GameSettlementView {
+  winner: PlayerId | null;
+  scores: [number, number];
+  breakdown: [SettlementBreakdown, SettlementBreakdown];
+  roundCount: number;
+}
+
+// ===== 用户战绩 =====
+export interface RecordView {
+  totalGames: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  totalScore: number;
+  level: number;
+  levelName: string;
+  winRate: number;
+  nextLevelScore: number;
+}
+
 // ====== 客户端 → 服务端（emit 带 ack）======
 export interface ClientEvents {
   joinRoom: (payload: { roomId?: string; name?: string; preferSlot?: Slot }, ack?: (ok: boolean, data: any) => void) => void;
@@ -94,6 +126,8 @@ export interface ClientEvents {
   giveUpEmergencyHeal: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   readyNextTurn: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   resetRoom: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
+  getRecord: (payload?: {}, ack?: (ok: boolean, data: RecordView | null) => void) => void;
+  submitSettlement: (payload: { settlement: GameSettlementView; myPid: PlayerId }, ack?: (ok: boolean, data: any) => void) => void;
 }
 
 // ====== 服务端 → 客户端（on）======
@@ -115,6 +149,7 @@ export interface ServerEvents {
   eventDamage: (data: { actorPid?: PlayerId; message: string }) => void;
   eventBuffChange: (data: { actorPid: PlayerId; type: string; message: string }) => void;
   eventGameOver: (data: { winner: PlayerId | null; reason: string | null; detail: string | null }) => void;
+  eventGameSettlement: (data: GameSettlementView) => void;
   eventTurnEnd: (data: { nextRoundCount: number; nextFirstPid: PlayerId }) => void;
   eventPlayerLeave: (data: { slot: Slot }) => void;
   eventRoomReset: () => void;

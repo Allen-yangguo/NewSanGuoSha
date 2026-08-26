@@ -4,10 +4,15 @@
 -->
 <template>
   <div class="p-panel" :class="me ? 'me' : 'opp'" v-if="player">
-    <div class="avatar-wrap">
-      <div class="avatar" :class="me ? '' : 'opp'">
-        {{ me ? '我' : (player.pid + 1) }}
+    <div
+      class="avatar-wrap"
+      :class="{ 'no-click': aiOpponent }"
+      @click="aiOpponent ? null : $emit('avatarClick', player?.pid)"
+    >
+      <div class="avatar" :class="[me ? '' : 'opp', avatarSizeClass]">
+        {{ avatarText }}
       </div>
+      <div class="score-badge" v-if="player">{{ combatScore }}</div>
       <!-- 头像旁手牌数徽章 -->
       <div class="hand-badge" :class="me ? 'me' : 'opp'">
         <span class="hand-badge-num">{{ player.handCount }}</span>
@@ -16,7 +21,6 @@
     </div>
     <div class="meta">
       <div class="row-name">
-        <span class="name">{{ player.name }}</span>
         <span v-if="isFirst" class="tag">先手</span>
         <span v-if="isActiveTurn && !isDefendingMe" class="tag turn">行动中</span>
         <span v-if="isDefendingMe" class="tag turn">防御中</span>
@@ -75,9 +79,34 @@ const props = defineProps<{
   activePid: PlayerId;
   defensePid: PlayerId | null;
   emergencyPid: PlayerId | null;
+  combatScores?: [number, number];
+  /** 对手为 AI 时禁用头像点击(单机模式) */
+  aiOpponent?: boolean;
+}>();
+
+defineEmits<{
+  avatarClick: [pid: PlayerId | undefined];
 }>();
 
 const isFirst = computed(() => props.player?.pid === props.firstPlayerPid);
+const avatarText = computed(() => {
+  const n = props.player?.name || '';
+  if (!n) return props.me ? '我' : String((props.player?.pid ?? 0) + 1);
+  // 完整昵称放进圆圈，靠字号自适应
+  return n;
+});
+// 按昵称长度自适应字号：中文字符比英文宽，按字符数分档
+const avatarSizeClass = computed(() => {
+  const len = avatarText.value.length;
+  if (len <= 2) return 'len-2';
+  if (len <= 4) return 'len-4';
+  if (len <= 6) return 'len-6';
+  return 'len-long';
+});
+const combatScore = computed(() => {
+  if (!props.player || !props.combatScores) return 0;
+  return props.combatScores[props.player.pid] ?? 0;
+});
 const isActiveTurn = computed(() => props.player?.pid === props.activePid);
 const isDefendingMe = computed(() => props.defensePid !== null && props.player?.pid === props.defensePid);
 const isEmergencyMe = computed(() => props.emergencyPid !== null && props.player?.pid === props.emergencyPid);

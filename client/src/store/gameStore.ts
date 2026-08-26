@@ -8,6 +8,7 @@ import { reactive, ref, computed } from 'vue';
 import { getSocket, emit, disconnectSocket } from '../api/socket';
 import { soundManager, type SfxType } from '../audio/SoundManager';
 import { LocalEngine } from '../engine/localEngine';
+import { authUser } from './authStore';
 import type { RoomStateView, Slot, PlayerId, CardView } from '../types/protocol';
 
 // ===== 游戏模式 =====
@@ -32,6 +33,12 @@ export interface PlayedCard {
 }
 export const playedCards = reactive<PlayedCard[]>([]);
 const MAX_PLAYED = 8;
+
+// ===== 局末结算 & 战绩 =====
+export const settlement = ref<any>(null);
+export const recordSummary = ref<any>(null);
+/** 当前查看的玩家战绩（点头像弹窗用，区别于自己的 recordSummary） */
+export const viewingRecord = ref<any>(null);
 
 // ===== 过场动画状态 =====
 /** 绝杀过场动画（触发后 1.5s 自动关闭） */
@@ -127,6 +134,7 @@ export const state = reactive<RoomStateView>({
   firstPlayerPid: 0,
   guiBeiProtectorPid: null,
   guiBeiRemainingTurns: 0,
+  combatScores: [0, 0],
   deckCount: 0,
   discardCount: 0,
   actionEnded: [false, false],
@@ -245,6 +253,9 @@ export function initStore(): void {
       pushToast('💀 你输了，下次再战！');
     }
   });
+  socket.on('eventGameSettlement', (d) => {
+    settlement.value = d;
+  });
   socket.on('eventTurnEnd', () => {
     pushToast('📜 回合结束 · 进入下一轮');
     // 回合结束时清空桌面展示区
@@ -265,6 +276,8 @@ export function initStore(): void {
 export function startSingle(): void {
   gameMode.value = 'single';
   clearPlayedCards();
+  // 登录用户用昵称作为自己头像显示名，游客/未填昵称回退"我"
+  const myName = authUser.value?.nickname || '我';
   localEngine = new LocalEngine({
     onRoomState: (s) => { applyRoomState(s); },
     onEventPlayCard: (d) => {
@@ -291,6 +304,9 @@ export function startSingle(): void {
       else if (d.winner === null) { pushToast('🤝 平局'); playSfx('draw'); }
       else { pushToast('💀 你输了，下次再战！'); playSfx('lose'); }
     },
+    onEventGameSettlement: (d) => {
+      settlement.value = d;
+    },
     onEventTurnEnd: () => {
       pushToast('📜 回合结束 · 进入下一轮');
       clearPlayedCards();
@@ -302,7 +318,7 @@ export function startSingle(): void {
       pushToast('♻ 新对局开始');
       clearPlayedCards();
     },
-  });
+  }, myName);
   localEngine.startGame();
 }
 
@@ -311,6 +327,35 @@ export function startLan(): void {
   gameMode.value = 'lan';
   initStore();
   joinRoom().catch(() => {});
+}
+
+/** 查询当前用户战绩 */
+export function fetchRecord(): void {
+  const socket = getSocket();
+  if (!socket) return;
+  socket.emit('getRecord', {}, (ok: boolean, data: any) => {
+    if (ok && data) recordSummary.value = data;
+    else recordSummary.value = null;
+  });
+}
+
+/** 按 pid 查询指定玩家战绩（点头像查看对手/自己战绩） */
+export function fetchRecordByPid(pid: PlayerId): void {
+  const socket = getSocket();
+  if (!socket) return;
+  socket.emit('getRecord', { pid }, (ok: boolean, data: any) => {
+    if (ok && data) viewingRecord.value = data;
+    else viewingRecord.value = null;
+  });
+}
+
+/** 单机模式：提交结算到服务端更新战绩 */
+export function submitSettlement(settlementData: any, myPid: PlayerId): void {
+  const socket = getSocket();
+  if (!socket) return;
+  socket.emit('submitSettlement', { settlement: settlementData, myPid }, () => {
+    fetchRecord(); // 提交后刷新战绩
+  });
 }
 
 /** 返回入口页 */
@@ -329,6 +374,7 @@ export function exitToEntry(): void {
   ultimateAnimating.value = false;
   gameOverAnimating.value = false;
   gameOverPending.value = false;
+  settlement.value = null;
   if (gameOverDelayTimer) { clearTimeout(gameOverDelayTimer); gameOverDelayTimer = null; }
   clearPlayedCards();
 }
@@ -391,6 +437,7 @@ export async function endAction(): Promise<{ ok: boolean; msg: string }> {
 }
 
 export async function resetRoom(): Promise<{ ok: boolean; msg: string }> {
+  settlement.value = null;
   if (gameMode.value === 'single' && localEngine) {
     localEngine.resetRoom();
     return { ok: true, msg: '新对局已开始' };

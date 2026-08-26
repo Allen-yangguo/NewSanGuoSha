@@ -31,8 +31,9 @@ import {
 } from '../assets/scripts/core/types';
 import { HP_MAX } from '../assets/scripts/core/BattleState';
 import { createAuthRouter } from './auth/routes';
-import { verifyToken } from './auth/authService';
+import { verifyToken, getUserByUid } from './auth/authService';
 import { getDb } from './auth/db';
+import { getRecordSummary, settleGame } from './auth/recordService';
 
 // ============================================================
 // 配置
@@ -137,6 +138,7 @@ interface RoomStateView {
   firstPlayerPid: PlayerId;
   guiBeiProtectorPid: PlayerId | null;
   guiBeiRemainingTurns: number;
+  combatScores: [number, number];
   deckCount: number;
   discardCount: number;
   /** 双方是否已结束行动（UI 用来显示「结束行动」按钮状态） */
@@ -221,6 +223,7 @@ function buildRoomState(socketId: string): RoomStateView {
     firstPlayerPid: room.engine.state.firstPlayer,
     guiBeiProtectorPid: room.engine.guiBeiProtector,
     guiBeiRemainingTurns: room.engine.guiBeiRemainingTurns,
+    combatScores: [...room.engine.scoreTracker.combatScore] as [number, number],
     deckCount: room.engine.state.deck.length,
     discardCount: room.engine.state.discard.length,
     actionEnded: [...room.engine.state.actionEnded] as [boolean, boolean],
@@ -260,6 +263,19 @@ function broadcastEvent(io: IOServer, event: string, payload: any): void {
   io.to(ROOM_ID).emit(event, payload);
 }
 
+/** 游戏结束时广播结算并更新战绩 */
+function broadcastSettlement(io: IOServer): void {
+  const settlement = room.engine.getSettlement();
+  // 更新双方战绩
+  for (const slot of ['p1', 'p2'] as Slot[]) {
+    const uid = room.players[slot].userId;
+    const pid = room.players[slot].pid;
+    if (uid) settleGame(uid, settlement, pid);
+  }
+  // 广播结算数据
+  broadcastEvent(io, 'eventGameSettlement', settlement);
+}
+
 /** 行动阶段：当前行动玩家无牌可出时自动结束行动 */
 function tryAutoEndAction(io: IOServer, room: Room): void {
   if (room.engine.state.gameOver) return;
@@ -277,6 +293,7 @@ function tryAutoEndAction(io: IOServer, room: Room): void {
         reason: room.engine.state.result?.reason ?? null,
         detail: room.engine.state.result?.detail ?? null,
       });
+      broadcastSettlement(io);
     }
   }
 }
@@ -379,7 +396,14 @@ io.on('connection', (socket: Socket) => {
     }
     room.players[mySlot].socketId = socket.id;
     room.players[mySlot].userId = userId;
-    if (payload?.name) room.players[mySlot].name = payload.name;
+    // 登录用户优先使用账号昵称；游客回退到 payload.name 或默认槽位名
+    let resolvedName: string | null = null;
+    if (userId) {
+      const userRes = getUserByUid(userId);
+      if (userRes.ok && userRes.user?.nickname) resolvedName = userRes.user.nickname;
+    }
+    if (resolvedName) room.players[mySlot].name = resolvedName;
+    else if (payload?.name) room.players[mySlot].name = payload.name;
     socket.join(ROOM_ID);
     console.log(`[IO] ${socket.id} 加入房间 -> ${mySlot} (pid=${room.players[mySlot].pid})${room.started ? ' · 重连' : ''}`);
 
@@ -457,6 +481,7 @@ io.on('connection', (socket: Socket) => {
         reason: room.engine.state.result?.reason ?? null,
         detail: room.engine.state.result?.detail ?? null,
       });
+      broadcastSettlement(io);
     }
     cb(true, r);
 
@@ -482,6 +507,7 @@ io.on('connection', (socket: Socket) => {
               reason: room.engine.state.result?.reason ?? null,
               detail: room.engine.state.result?.detail ?? null,
             });
+            broadcastSettlement(io);
           }
         }
       }
@@ -533,6 +559,7 @@ io.on('connection', (socket: Socket) => {
         reason: room.engine.state.result?.reason ?? null,
         detail: room.engine.state.result?.detail ?? null,
       });
+      broadcastSettlement(io);
     }
     cb(true, r);
     broadcastRoomState(io);
@@ -551,6 +578,7 @@ io.on('connection', (socket: Socket) => {
       reason: room.engine.state.result?.reason ?? null,
       detail: room.engine.state.result?.detail ?? null,
     });
+    broadcastSettlement(io);
     cb(true, r);
     broadcastRoomState(io);
   });
@@ -580,6 +608,7 @@ io.on('connection', (socket: Socket) => {
         reason: room.engine.state.result?.reason ?? null,
         detail: room.engine.state.result?.detail ?? null,
       });
+      broadcastSettlement(io);
     }
     cb(true, r);
     broadcastRoomState(io);
@@ -599,6 +628,37 @@ io.on('connection', (socket: Socket) => {
     });
     cb(true, { message: '新对局已开始' });
     broadcastRoomState(io);
+  });
+
+  // ---------- 查询战绩 ----------
+  // payload.pid: 指定玩家 pid（用于查看对手战绩）；不传则查自己
+  socket.on('getRecord', (payload: { pid?: number } = {}, ack) => {
+    const cb: (ok: boolean, data: any) => void = typeof ack === 'function' ? ack : () => {};
+    const auth = (socket.data as any).auth as { uid: string; role: string } | undefined;
+    const myUid = auth?.uid ?? null;
+    let targetUid = myUid;
+    if (payload?.pid !== undefined && payload.pid !== null) {
+      // 按 pid 找 room 内对应玩家的 userId（联机对手战绩）
+      const slot = (['p1', 'p2'] as Slot[]).find(s => room.players[s].pid === payload.pid);
+      if (slot) targetUid = room.players[slot].userId;
+    }
+    if (!targetUid || targetUid.startsWith('g')) {
+      return cb(true, null); // 游客/AI 无战绩
+    }
+    const summary = getRecordSummary(targetUid);
+    cb(true, summary);
+  });
+
+  // ---------- 单机模式提交结算 ----------
+  socket.on('submitSettlement', (payload: any, ack) => {
+    const cb: (ok: boolean, data: any) => void = typeof ack === 'function' ? ack : () => {};
+    const auth = (socket.data as any).auth as { uid: string; role: string } | undefined;
+    const uid = auth?.uid ?? null;
+    if (!uid || uid.startsWith('g')) {
+      return cb(true, { skipped: true }); // 游客不计战绩
+    }
+    settleGame(uid, payload.settlement, payload.myPid);
+    cb(true, { ok: true });
   });
 
   // ---------- 断开连接 ----------
