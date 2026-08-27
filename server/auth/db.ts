@@ -135,6 +135,42 @@ export function updateUserPassword(phone: string, passwordHash: string): void {
   }
 }
 
+// ===== 用户管理（管理后台）=====
+/** 用户列表/搜索: 关键词匹配 id / 手机号 / 用户名 / 昵称 */
+export function listUsers(keyword: string): UserRow[] {
+  const data = loadData();
+  const kw = (keyword || '').trim().toLowerCase();
+  if (!kw) return [...data.users];
+  return data.users.filter(u =>
+    String(u.id) === kw ||
+    u.phone.toLowerCase().includes(kw) ||
+    (u.username || '').toLowerCase().includes(kw) ||
+    (u.nickname || '').toLowerCase().includes(kw),
+  );
+}
+
+/** 按 id 重置密码 */
+export function updateUserPasswordById(id: number, passwordHash: string): boolean {
+  const data = loadData();
+  const user = data.users.find(u => u.id === id);
+  if (!user) return false;
+  user.password_hash = passwordHash;
+  user.updated_at = new Date().toISOString();
+  saveData();
+  return true;
+}
+
+/** 删除用户(同时删除其战绩) */
+export function deleteUser(id: number): boolean {
+  const data = loadData();
+  const idx = data.users.findIndex(u => u.id === id);
+  if (idx < 0) return false;
+  data.users.splice(idx, 1);
+  delete data.records[`u${id}`];
+  saveData();
+  return true;
+}
+
 // ===== 游客表 =====
 export function touchGuest(guestId: string): void {
   const data = loadData();

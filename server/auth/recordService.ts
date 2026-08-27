@@ -1,43 +1,24 @@
 /**
  * 战绩服务 · 级别计算 + 局末战绩更新
+ * 级别阈值来自可配置等级(server/auth/levels.ts),管理后台可动态调整
  */
 import { GameSettlement, PlayerId } from '../../assets/scripts/core/types';
 import { getRecord, updateRecord, RecordRow } from './db';
+import { getLevel, getLevels } from './levels';
 
-/** 级别配置：累计分区间 */
-interface LevelDef {
-  lv: number;
-  name: string;
-  min: number;
-  max: number;
-}
-
-const LEVELS: LevelDef[] = [
-  { lv: 1, name: '新兵', min: 0, max: 499 },
-  { lv: 2, name: '步卒', min: 500, max: 1199 },
-  { lv: 3, name: '校尉', min: 1200, max: 2099 },
-  { lv: 4, name: '偏将', min: 2100, max: 3299 },
-  { lv: 5, name: '大将', min: 3300, max: 4799 },
-  { lv: 6, name: '军师', min: 4800, max: 6599 },
-  { lv: 7, name: '枭雄', min: 6600, max: 999999 },
-];
-
-/** 根据累计分获取级别信息 */
-export function getLevel(totalScore: number): LevelDef {
-  return LEVELS.find(l => totalScore >= l.min && totalScore <= l.max) || LEVELS[0];
-}
-
-/** 获取用户战绩摘要（含级别） */
+/** 根据累计分获取用户战绩摘要（含级别） */
 export function getRecordSummary(uid: string) {
   const rec = getRecord(uid);
   const level = getLevel(rec.totalScore);
+  const levels = getLevels();
+  const next = levels.find(l => l.lv === level.lv + 1);
   const winRate = rec.totalGames > 0 ? Math.round((rec.wins / rec.totalGames) * 100) : 0;
   return {
     ...rec,
     level: level.lv,
     levelName: level.name,
     winRate,
-    nextLevelScore: level.lv < 7 ? LEVELS[level.lv].min - rec.totalScore : 0,
+    nextLevelScore: next ? Math.max(0, next.min - rec.totalScore) : 0,
   };
 }
 

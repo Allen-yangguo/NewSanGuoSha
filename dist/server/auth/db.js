@@ -41,6 +41,9 @@ exports.findUserById = findUserById;
 exports.createUser = createUser;
 exports.updateUserNickname = updateUserNickname;
 exports.updateUserPassword = updateUserPassword;
+exports.listUsers = listUsers;
+exports.updateUserPasswordById = updateUserPasswordById;
+exports.deleteUser = deleteUser;
 exports.touchGuest = touchGuest;
 exports.insertSmsCode = insertSmsCode;
 exports.findLatestSmsCode = findLatestSmsCode;
@@ -152,6 +155,40 @@ function updateUserPassword(phone, passwordHash) {
         user.updated_at = new Date().toISOString();
         saveData();
     }
+}
+// ===== 用户管理（管理后台）=====
+/** 用户列表/搜索: 关键词匹配 id / 手机号 / 用户名 / 昵称 */
+function listUsers(keyword) {
+    const data = loadData();
+    const kw = (keyword || '').trim().toLowerCase();
+    if (!kw)
+        return [...data.users];
+    return data.users.filter(u => String(u.id) === kw ||
+        u.phone.toLowerCase().includes(kw) ||
+        (u.username || '').toLowerCase().includes(kw) ||
+        (u.nickname || '').toLowerCase().includes(kw));
+}
+/** 按 id 重置密码 */
+function updateUserPasswordById(id, passwordHash) {
+    const data = loadData();
+    const user = data.users.find(u => u.id === id);
+    if (!user)
+        return false;
+    user.password_hash = passwordHash;
+    user.updated_at = new Date().toISOString();
+    saveData();
+    return true;
+}
+/** 删除用户(同时删除其战绩) */
+function deleteUser(id) {
+    const data = loadData();
+    const idx = data.users.findIndex(u => u.id === id);
+    if (idx < 0)
+        return false;
+    data.users.splice(idx, 1);
+    delete data.records[`u${id}`];
+    saveData();
+    return true;
 }
 // ===== 游客表 =====
 function touchGuest(guestId) {

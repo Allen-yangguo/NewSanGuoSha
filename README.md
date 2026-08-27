@@ -188,7 +188,7 @@ npm run build          # 产物输出到 client/dist，由 server.ts 静态托�
 2. [zeabur.com](https://zeabur.com) 新建服务 → 选 GitHub 仓库
 3. Build Command：`npm install && cd client && npm install && npm run build`
 4. Start Command：`npm run start:server`
-5. 环境变量：`PORT=10000`（可选：`MONITOR_TOKEN=你的监控密码`，见「十二、流量监控模块」）
+5. 环境变量：`PORT=10000`（可选：`MONITOR_TOKEN=你的监控密码`，见「十二、流量监控模块」；`ADMIN_TOKEN=你的后台密码`，见「十三、管理后台」）
 
 ### Render / Railway / Fly.io
 配置同上，但国内访问可能需要代理。
@@ -267,4 +267,53 @@ MONITOR_TOKEN=你的监控密码
 ```bash
 PORT=10000 NODE_ENV=development MONITOR_TOKEN=test123 npm run start:server
 # 浏览器打开 http://localhost:10000/monitor ，输入 test123 查看面板
+```
+
+## 十三、管理后台
+
+服务端内置管理后台，包含**用户管理**与**等级设置**，并可直接跳转流量监控面板。
+
+### 访问
+```
+https://你的域名/admin
+```
+页面内两个模块 + 顶部「📊 流量监控」入口链接。
+
+### 部署配置（重要）
+在 Zeabur 环境变量中添加：
+```
+ADMIN_TOKEN=你的后台密码
+```
+- 已配置 → 后台与接口均需该 token
+- **未配置** → 生产环境（`NODE_ENV=production`）下后台接口直接返回 403 禁用；开发环境放行便于调试
+
+### 用户管理
+- 列表 / 按 id、手机号、用户名、昵称搜索，附战绩摘要（对局数、胜场、总分、等级）
+- 重置密码（新密码需 ≥8 位且含字母和数字）
+- 删除用户（同时删除其战绩）
+
+### 等级设置
+- 等级按**累计积分区间**划分，默认 **14 级**：新兵 → 步卒 → 校尉 → 偏将 → 大将 → 军师 → 统帅 → 霸主 → 枭雄 → 王侯 → 帝王 → 圣君 → 传说 → 不朽
+- 积分区间逐级加宽（500 → 700 → … → 7000 分），级别越高升级所需分数越多；「不朽」为开放上限
+- 可修改等级名称与分数区间，**保存后立即生效**，无需重启（存 `data/levels.json` 热加载，重启后仍保留）
+- **支持新增 / 删除等级**：新增默认追加到最高级之上；删除时分数区间自动并入相邻级并重排，保证区间始终连续
+- 校验规则：lv 从 1 连续递增、第 1 级下限必须为 0、各级区间必须连续（上一级上限 + 1 = 下一级下限）、名称 ≤12 字
+- 「恢复默认」一键回到内置 14 级配置
+
+### 接口（需鉴权）
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/admin/users?keyword=` | 用户列表/搜索（含战绩摘要） |
+| `PUT /api/admin/users/:uid/reset-password` | 重置密码 `{ newPassword }` |
+| `DELETE /api/admin/users/:uid` | 删除用户 |
+| `GET /api/admin/levels` | 当前等级配置 + 默认配置 |
+| `PUT /api/admin/levels` | 保存等级配置 `{ levels: [{lv,name,min,max}] }` |
+| `POST /api/admin/levels/reset` | 恢复默认等级 |
+
+鉴权方式：`Authorization: Bearer <token>` 或查询参数 `?token=<token>`。
+
+### 本地验证
+```bash
+PORT=10000 NODE_ENV=development MONITOR_TOKEN=test123 ADMIN_TOKEN=admin123 npm run start:server
+# 浏览器打开 http://localhost:10000/admin ，输入 admin123 进入后台
 ```

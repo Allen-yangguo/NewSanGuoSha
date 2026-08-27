@@ -67,6 +67,7 @@ const authService_1 = require("./auth/authService");
 const db_1 = require("./auth/db");
 const recordService_1 = require("./auth/recordService");
 const monitor_1 = require("./monitor/monitor");
+const admin_1 = require("./admin/admin");
 // ============================================================
 // 配置
 // ============================================================
@@ -332,6 +333,8 @@ app.use(express.json());
 app.use('/api/auth', (0, routes_1.createAuthRouter)());
 // 流量监控 REST 接口(MONITOR_TOKEN 保护)
 app.use('/api/monitor', (0, monitor_1.createMonitorRouter)());
+// 管理后台 REST 接口(ADMIN_TOKEN 保护)
+app.use('/api/admin', (0, admin_1.createAdminRouter)());
 // 静态托管：基于 process.cwd() 解析 client/dist，兼容 ts-node 和编译后运行
 // ts-node 运行 server/server.ts 时 cwd 是项目根
 // node dist/server/server.js 运行时 cwd 是项目根
@@ -349,6 +352,8 @@ app.get('/__status', (_req, res) => {
 });
 // 流量监控面板页面(数据走受保护的 /api/monitor/*)
 app.get('/monitor', monitor_1.dashboardHandler);
+// 管理后台页面(数据走受保护的 /api/admin/*)
+app.get('/admin', admin_1.adminDashboardHandler);
 // SPA 兜底：所有未匹配路由都返回前端 index.html
 app.use((_req, res, next) => {
     if (_req.path.startsWith('/socket.io/'))
@@ -358,6 +363,10 @@ app.use((_req, res, next) => {
     if (_req.path === '/monitor')
         return next();
     if (_req.path.startsWith('/api/monitor'))
+        return next();
+    if (_req.path === '/admin')
+        return next();
+    if (_req.path.startsWith('/api/admin'))
         return next();
     res.sendFile(path.join(clientDist, 'index.html'), (err) => {
         if (err) {
@@ -859,8 +868,13 @@ async function main() {
         console.log('║  局域网部署：访问本机 IP + 端口                  ║');
         console.log('╠══════════════════════════════════════════════════╣');
         console.log('║  前端入口：打开网页选择「单机 vs AI」或「联机」  ║');
+        console.log('║  监控面板：/monitor   管理后台：/admin           ║');
         console.log('╚══════════════════════════════════════════════════╝');
         console.log('');
+        const adminToken = process.env.ADMIN_TOKEN;
+        console.log(adminToken
+            ? '[ADMIN] 管理后台: /admin (ADMIN_TOKEN 已配置)'
+            : '[ADMIN] 管理后台: /admin · 警告: 未配置 ADMIN_TOKEN,生产环境(NODE_ENV=production)下将禁用');
     });
 }
 main().catch(err => {

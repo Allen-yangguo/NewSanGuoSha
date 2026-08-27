@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>新三国杀 · 管理后台</title>
+<style>
+  :root {
+    --bg: #14171f;
+    --panel: #1c212c;
+    --panel2: #232a37;
+    --border: #2e3646;
+    --text: #dbe2ee;
+    --muted: #8b95a7;
+    --accent: #d9a441;
+    --gold: #c9a227;
+    --red: #e05b5b;
+    --green: #43c98a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    padding: 20px;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding-bottom: 14px; border-bottom: 1px solid var(--border); margin-bottom: 16px;
+  }
+  header h1 { font-size: 20px; color: var(--gold); letter-spacing: 1px; }
+  header h1 small { font-size: 13px; color: var(--muted); margin-left: 10px; letter-spacing: 0; }
+  .spacer { flex: 1; }
+  a.link-btn, button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; text-decoration: none;
+  }
+  a.link-btn:hover, button:hover { border-color: var(--accent); }
+  button.primary { background: var(--gold); color: #1a1405; font-weight: 600; border: none; }
+  button.primary:hover { filter: brightness(1.1); }
+  button.danger { color: var(--red); border-color: var(--red); }
+  .tabs { display: flex; gap: 8px; }
+  .tab {
+    padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--muted); cursor: pointer; font-size: 14px;
+  }
+  .tab.active { background: var(--panel2); color: var(--gold); border-color: var(--accent); font-weight: 600; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  input[type="text"], input[type="search"], input[type="password"], input[type="number"] {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 8px 10px; font-size: 13px; outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .mono { font-family: Consolas, "Courier New", monospace; }
+  .empty { color: var(--muted); text-align: center; padding: 30px; }
+  .msg { font-size: 13px; min-height: 20px; margin-top: 8px; }
+  .msg.ok { color: var(--green); }
+  .msg.err { color: var(--red); }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; background: var(--panel2); border: 1px solid var(--border); }
+  .lv-cell input { width: 90px; }
+  .lv-name input { width: 110px; }
+  #overlay {
+    position: fixed; inset: 0; background: rgba(8, 10, 14, 0.92); z-index: 10;
+    display: none; align-items: center; justify-content: center;
+  }
+  #overlay.show { display: flex; }
+  .dialog {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 28px 32px; max-width: 380px; width: 90%; text-align: center;
+  }
+  .dialog h2 { color: var(--gold); margin-bottom: 12px; font-size: 18px; }
+  .dialog p { color: var(--muted); font-size: 13px; line-height: 1.6; margin-bottom: 16px; }
+  .dialog input {
+    width: 100%; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; outline: none;
+  }
+  .dialog input:focus { border-color: var(--accent); }
+  .dialog button { background: var(--gold); color: #1a1405; border: none; border-radius: 6px; padding: 10px 22px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .err { color: var(--red); font-size: 13px; margin-bottom: 10px; min-height: 18px; }
+  #modal {
+    position: fixed; inset: 0; background: rgba(8, 10, 14, 0.7); z-index: 9;
+    display: none; align-items: center; justify-content: center;
+  }
+  #modal.show { display: flex; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚙ 新三国杀 · 管理后台<small>Admin Console</small></h1>
+  <div class="spacer"></div>
+  <a class="link-btn" href="/monitor" title="流量监控面板">📊 流量监控</a>
+  <a class="link-btn" href="/">← 返回游戏</a>
+</header>
+
+<div class="tabs" style="margin-bottom:14px;">
+  <button class="tab active" id="tabUsers" onclick="switchTab('users')">👥 用户管理</button>
+  <button class="tab" id="tabLevels" onclick="switchTab('levels')">🏅 等级设置</button>
+</div>
+
+<!-- ============ 用户管理 ============ -->
+<div id="viewUsers" class="panel">
+  <div class="toolbar">
+    <input type="search" id="userKeyword" placeholder="搜索 id / 手机号 / 用户名 / 昵称" style="width:260px;"
+           onkeydown="if(event.key==='Enter')loadUsers()" />
+    <button onclick="loadUsers()">搜索</button>
+    <button onclick="loadUsers()">刷新</button>
+    <span id="userCount" style="color:var(--muted);font-size:12px;"></span>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th><th>账号</th><th>昵称</th><th>注册时间</th>
+        <th class="num">对局</th><th class="num">胜</th><th class="num">总分</th><th>等级</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody id="userRows"></tbody>
+  </table>
+  <div class="msg" id="usersMsg"></div>
+</div>
+
+<!-- ============ 等级设置 ============ -->
+<div id="viewLevels" class="panel" style="display:none;">
+  <div class="toolbar">
+    <span style="color:var(--muted);font-size:13px;">等级 = 按累计积分区间划分,修改后立即生效(存 data/levels.json)</span>
+    <div class="spacer"></div>
+    <button onclick="addLevel()">＋ 新增等级</button>
+    <button onclick="saveLevels()" class="primary">💾 保存</button>
+    <button onclick="resetLevels()">↺ 恢复默认</button>
+  </div>
+  <table>
+    <thead>
+      <tr><th>Lv</th><th>名称</th><th class="num">分数下限</th><th class="num">分数上限</th><th></th></tr>
+    </thead>
+    <tbody id="levelRows"></tbody>
+  </table>
+  <div class="msg" id="levelsMsg"></div>
+</div>
+
+<!-- 登录弹窗 -->
+<div id="overlay">
+  <div class="dialog">
+    <h2 id="dlgTitle">🔒 管理后台需要授权</h2>
+    <p id="dlgDesc">请输入部署时配置的 ADMIN_TOKEN 环境变量值。</p>
+    <div class="err" id="dlgErr"></div>
+    <input type="password" id="dlgToken" placeholder="ADMIN_TOKEN" autocomplete="off" />
+    <button id="dlgBtn">确认</button>
+  </div>
+</div>
+
+<!-- 重置密码弹窗 -->
+<div id="modal">
+  <div class="dialog">
+    <h2>重置密码</h2>
+    <p>用户 <b id="resetTarget"></b> 的新密码(至少 8 位,含字母和数字)</p>
+    <div class="err" id="modalErr"></div>
+    <input type="password" id="modalPwd" placeholder="新密码" autocomplete="off" />
+    <div style="display:flex;gap:10px;justify-content:center;">
+      <button onclick="closeModal()" style="background:var(--panel2);color:var(--text);">取消</button>
+      <button onclick="doResetPwd()">确认重置</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  let token = localStorage.getItem('adminToken') || '';
+  let loginShown = false;
+
+  const $ = id => document.getElementById(id);
+
+  // ---------- 鉴权 ----------
+  function showLogin(msg) {
+    $('dlgTitle').textContent = '🔒 管理后台需要授权';
+    $('dlgDesc').textContent = '请输入部署时配置的 ADMIN_TOKEN 环境变量值。';
+    $('dlgErr').textContent = msg || '';
+    if (!loginShown) {
+      loginShown = true;
+      $('dlgToken').value = '';
+      $('overlay').classList.add('show');
+      $('dlgToken').focus();
+    }
+  }
+  function hideLogin() {
+    loginShown = false;
+    $('overlay').classList.remove('show');
+  }
+  function showDisabled() {
+    $('dlgTitle').textContent = '⛔ 管理后台未启用';
+    $('dlgDesc').innerHTML = '服务器未配置 <b>ADMIN_TOKEN</b>,管理后台在生产环境已禁用。<br>请在 Zeabur 环境变量中添加 ADMIN_TOKEN 后重新部署。';
+    $('dlgErr').textContent = '';
+    $('overlay').classList.add('show');
+  }
+  $('dlgBtn').addEventListener('click', () => {
+    const v = $('dlgToken').value.trim();
+    if (!v) { $('dlgErr').textContent = '请输入 token'; return; }
+    token = v;
+    localStorage.setItem('adminToken', v);
+    hideLogin();
+    loadAll();
+  });
+  $('dlgToken').addEventListener('keydown', e => { if (e.key === 'Enter') $('dlgBtn').click(); });
+
+  // ---------- API ----------
+  async function api(path, options) {
+    const hadToken = !!token;
+    const sep = path.includes('?') ? '&' : '?';
+    const url = hadToken ? `${path}${sep}token=${encodeURIComponent(token)}` : path;
+    let r;
+    try {
+      r = await fetch(url, Object.assign({ cache: 'no-store' }, options || {}));
+    } catch (e) {
+      return { ok: false, networkError: true };
+    }
+    if (r.status === 401) return { ok: false, unauthorized: true, hadToken };
+    if (r.status === 403) {
+      const j = await r.json().catch(() => ({}));
+      if (j.code === 'ADMIN_DISABLED') return { ok: false, disabled: true };
+    }
+    if (!r.ok) return null;
+    return r.json();
+  }
+
+  // ---------- 用户管理 ----------
+  async function loadUsers() {
+    const kw = encodeURIComponent($('userKeyword').value.trim());
+    const d = await api(`/api/admin/users?keyword=${kw}`);
+    if (!d) return;
+    if (d.unauthorized) { showLogin(d.hadToken ? '令牌无效或已过期,请重新输入' : '请输入管理密码'); return; }
+    if (d.disabled) { showDisabled(); return; }
+    if (!d.ok) { $('usersMsg').className = 'msg err'; $('usersMsg').textContent = d.message || '加载失败'; return; }
+    $('userCount').textContent = `共 ${d.total} 个用户`;
+    const rows = d.users.map(u => {
+      const rec = u.record || {};
+      const acct = [u.phone, u.username].filter(Boolean).join(' / ') || '—';
+      const time = u.createdAt ? u.createdAt.replace('T', ' ').slice(0, 16) : '—';
+      return `<tr>
+        <td class="mono">${u.id}</td>
+        <td class="mono">${acct}</td>
+        <td>${esc(u.nickname || '—')}</td>
+        <td>${time}</td>
+        <td class="num">${rec.totalGames || 0}</td>
+        <td class="num">${rec.wins || 0}</td>
+        <td class="num">${rec.totalScore || 0}</td>
+        <td><span class="badge">Lv${rec.level || 1} ${esc(rec.levelName || '')}</span></td>
+        <td>
+          <button onclick="openResetPwd('${u.uid}','${esc(u.nickname || u.phone || u.username || '')}')">重置密码</button>
+          <button class="danger" onclick="deleteUser('${u.uid}','${esc(u.nickname || u.phone || u.username || '')}')">删除</button>
+        </td>
+      </tr>`;
+    }).join('');
+    $('userRows').innerHTML = rows || '<tr><td colspan="9" class="empty">没有匹配的用户</td></tr>';
+    $('usersMsg').textContent = '';
+  }
+
+  // ---------- 等级设置 ----------
+  let levels = [];
+  function renderLevelRows() {
+    $('levelRows').innerHTML = levels.map((l, i) => `<tr>
+      <td class="mono">${l.lv}</td>
+      <td class="lv-name"><input type="text" value="${esc(l.name)}" data-i="${i}" data-f="name" maxlength="12" /></td>
+      <td class="num lv-cell"><input type="number" min="0" value="${l.min}" data-i="${i}" data-f="min" /></td>
+      <td class="num lv-cell"><input type="number" value="${l.max}" data-i="${i}" data-f="max" /></td>
+      <td><button class="danger" onclick="deleteLevel(${i})" title="删除该级,区间并入相邻级">删除</button></td>
+    </tr>`).join('');
+  }
+  /** 结构变更后重排 lv(必须从 1 连续) */
+  function renumberLevels() {
+    levels.forEach((l, i) => { l.lv = i + 1; });
+  }
+  /** 新增一级: 追加到顶部之上(上一级上限 + 1 起,默认区间宽 10000 分) */
+  function addLevel() {
+    const last = levels[levels.length - 1];
+    const min = last ? last.max + 1 : 0;
+    levels.push({ lv: levels.length + 1, name: '新等级', min, max: min + 10000 });
+    renumberLevels();
+    renderLevelRows();
+    $('levelsMsg').className = 'msg';
+    $('levelsMsg').textContent = '已新增一级,填写名称与分数区间后点保存生效';
+  }
+  /** 删除一级: 区间自动并入相邻级(首级 → 并入下一级;其余 → 并入上一级),保持区间连续 */
+  function deleteLevel(i) {
+    if (levels.length <= 1) {
+      $('levelsMsg').className = 'msg err';
+      $('levelsMsg').textContent = '至少保留 1 个等级';
+      return;
+    }
+    if (!confirm(`确定删除「${levels[i].name}」(Lv${levels[i].lv})吗?其分数区间将并入相邻等级。`)) return;
+    if (i === 0) {
+      levels[1].min = 0; // 下一级吸收 0 起点
+      levels.splice(0, 1);
+    } else {
+      levels[i - 1].max = levels[i].max; // 上一级吸收被删区间
+      levels.splice(i, 1);
+    }
+    renumberLevels();
+    renderLevelRows();
+    $('levelsMsg').className = 'msg';
+    $('levelsMsg').textContent = '已删除,点保存生效';
+  }
+  async function loadLevels() {
+    const d = await api('/api/admin/levels');
+    if (!d) return;
+    if (d.unauthorized) { showLogin(d.hadToken ? '令牌无效或已过期,请重新输入' : '请输入管理密码'); return; }
+    if (d.disabled) { showDisabled(); return; }
+    if (!d.ok) { $('levelsMsg').className = 'msg err'; $('levelsMsg').textContent = '加载失败'; return; }
+    levels = d.levels;
+    renderLevelRows();
+    $('levelsMsg').textContent = '';
+  }
+  async function saveLevels() {
+    const inputs = $('levelRows').querySelectorAll('input[data-i]');
+    const list = levels.map(l => ({ lv: l.lv, name: l.name, min: l.min, max: l.max }));
+    inputs.forEach(inp => {
+      const i = Number(inp.dataset.i);
+      const f = inp.dataset.f;
+      if (f === 'name') list[i].name = inp.value.trim();
+      else list[i][f] = parseInt(inp.value, 10) || 0;
+    });
+    const d = await api('/api/admin/levels', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ levels: list }) });
+    if (d && d.ok) {
+      $('levelsMsg').className = 'msg ok'; $('levelsMsg').textContent = d.message || '保存成功';
+      loadLevels();
+    } else {
+      $('levelsMsg').className = 'msg err'; $('levelsMsg').textContent = (d && d.message) || '保存失败';
+      loadLevels();
+    }
+  }
+  async function resetLevels() {
+    if (!confirm('确定恢复默认等级配置吗?')) return;
+    const d = await api('/api/admin/levels/reset', { method: 'POST' });
+    if (d && d.ok) { $('levelsMsg').className = 'msg ok'; $('levelsMsg').textContent = d.message; loadLevels(); }
+    else { $('levelsMsg').className = 'msg err'; $('levelsMsg').textContent = (d && d.message) || '操作失败'; }
+  }
+
+  // ---------- 用户操作 ----------
+  let resetUid = null;
+  function openResetPwd(uid, name) {
+    resetUid = uid;
+    $('resetTarget').textContent = name + ' (' + uid + ')';
+    $('modalPwd').value = '';
+    $('modalErr').textContent = '';
+    $('modal').classList.add('show');
+    $('modalPwd').focus();
+  }
+  function closeModal() { $('modal').classList.remove('show'); resetUid = null; }
+  async function doResetPwd() {
+    const pwd = $('modalPwd').value;
+    if (!resetUid) return;
+    const d = await api(`/api/admin/users/${resetUid}/reset-password`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newPassword: pwd }),
+    });
+    if (d && d.ok) {
+      closeModal();
+      $('usersMsg').className = 'msg ok'; $('usersMsg').textContent = d.message;
+    } else {
+      $('modalErr').textContent = (d && d.message) || '操作失败';
+    }
+  }
+  async function deleteUser(uid, name) {
+    if (!confirm(`确定删除用户「${name}」(${uid})吗?该操作不可恢复,将同时删除其战绩。`)) return;
+    const d = await api(`/api/admin/users/${uid}`, { method: 'DELETE' });
+    if (d && d.ok) { $('usersMsg').className = 'msg ok'; $('usersMsg').textContent = d.message; loadUsers(); }
+    else { $('usersMsg').className = 'msg err'; $('usersMsg').textContent = (d && d.message) || '操作失败'; }
+  }
+
+  // ---------- Tab 切换 ----------
+  function switchTab(name) {
+    $('tabUsers').classList.toggle('active', name === 'users');
+    $('tabLevels').classList.toggle('active', name === 'levels');
+    $('viewUsers').style.display = name === 'users' ? '' : 'none';
+    $('viewLevels').style.display = name === 'levels' ? '' : 'none';
+  }
+
+  // ---------- 工具 ----------
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+  function loadAll() { loadUsers(); loadLevels(); }
+
+  // 暴露给内联 onclick 使用
+  window.loadUsers = loadUsers;
+  window.saveLevels = saveLevels;
+  window.resetLevels = resetLevels;
+  window.addLevel = addLevel;
+  window.deleteLevel = deleteLevel;
+  window.openResetPwd = openResetPwd;
+  window.deleteUser = deleteUser;
+  window.doResetPwd = doResetPwd;
+  window.closeModal = closeModal;
+  window.switchTab = switchTab;
+
+  loadAll();
+})();
+</script>
+</body>
+</html>
