@@ -188,7 +188,7 @@ npm run build          # 产物输出到 client/dist，由 server.ts 静态托�
 2. [zeabur.com](https://zeabur.com) 新建服务 → 选 GitHub 仓库
 3. Build Command：`npm install && cd client && npm install && npm run build`
 4. Start Command：`npm run start:server`
-5. 环境变量：`PORT=10000`（可选：`MONITOR_TOKEN=你的监控密码`，见「十二、流量监控模块」；`ADMIN_TOKEN=你的后台密码`，见「十三、管理后台」）
+5. 环境变量：`PORT=10000`（可选：`ADMIN_TOKEN=你的后台密码`，见「十二、流量监控模块」「十三、管理后台」，两处共用这一个变量）
 
 ### Render / Railway / Fly.io
 配置同上，但国内访问可能需要代理。
@@ -256,16 +256,13 @@ npm run build:web           # esbuild 打包到 web-test/bundle.js
 访问 `https://你的域名/monitor` 查看可视化面板（请求曲线、在线/对局曲线、流量、路由与状态码分布），页面每 5 秒自动刷新，支持 1 小时 / 6 小时 / 24 小时 / 7 天时间范围。
 
 ### 部署配置（重要）
-在 Zeabur 环境变量中添加：
-```
-MONITOR_TOKEN=你的监控密码
-```
-- 已配置 → 面板与接口均需该 token 才能访问
+流量监控**不再独立鉴权**，与管理后台统一使用 `ADMIN_TOKEN`（见「十三、管理后台」），只需配置一个环境变量：
+- 已配置 `ADMIN_TOKEN` → 监控面板与接口均需该 token
 - **未配置** → 生产环境（`NODE_ENV=production`）下监控接口直接返回 403 禁用，防止流量数据公开展示；开发环境（本地 `npm run start:server`）未配置时放行，便于调试
 
 ### 本地验证
 ```bash
-PORT=10000 NODE_ENV=development MONITOR_TOKEN=test123 npm run start:server
+PORT=10000 NODE_ENV=development ADMIN_TOKEN=test123 npm run start:server
 # 浏览器打开 http://localhost:10000/monitor ，输入 test123 查看面板
 ```
 
@@ -280,12 +277,13 @@ https://你的域名/admin
 页面内两个模块 + 顶部「📊 流量监控」入口链接。
 
 ### 部署配置（重要）
-在 Zeabur 环境变量中添加：
+### 部署配置（重要）
+在 Zeabur 环境变量中添加（**唯一需要配置的后台变量**，监控面板 `/monitor` 与管理后台 `/admin` 共用）：
 ```
 ADMIN_TOKEN=你的后台密码
 ```
-- 已配置 → 后台与接口均需该 token
-- **未配置** → 生产环境（`NODE_ENV=production`）下后台接口直接返回 403 禁用；开发环境放行便于调试
+- 已配置 → 管理后台与流量监控的接口均需该 token
+- **未配置** → 生产环境（`NODE_ENV=production`）下两者接口直接返回 403 禁用；开发环境放行便于调试
 
 ### 用户管理
 - 列表 / 按 id、手机号、用户名、昵称搜索，附战绩摘要（对局数、胜场、总分、等级）
@@ -314,6 +312,7 @@ ADMIN_TOKEN=你的后台密码
 
 ### 本地验证
 ```bash
-PORT=10000 NODE_ENV=development MONITOR_TOKEN=test123 ADMIN_TOKEN=admin123 npm run start:server
+PORT=10000 NODE_ENV=development ADMIN_TOKEN=admin123 npm run start:server
 # 浏览器打开 http://localhost:10000/admin ，输入 admin123 进入后台
+# 监控面板 http://localhost:10000/monitor 也使用同一个 admin123
 ```

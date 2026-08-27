@@ -331,7 +331,7 @@ app.use(monitor_1.httpMiddleware);
 app.use(express.json());
 // 用户认证 REST 接口
 app.use('/api/auth', (0, routes_1.createAuthRouter)());
-// 流量监控 REST 接口(MONITOR_TOKEN 保护)
+// 流量监控 REST 接口(与管理后台统一,ADMIN_TOKEN 保护)
 app.use('/api/monitor', (0, monitor_1.createMonitorRouter)());
 // 管理后台 REST 接口(ADMIN_TOKEN 保护)
 app.use('/api/admin', (0, admin_1.createAdminRouter)());
@@ -873,8 +873,8 @@ async function main() {
         console.log('');
         const adminToken = process.env.ADMIN_TOKEN;
         console.log(adminToken
-            ? '[ADMIN] 管理后台: /admin (ADMIN_TOKEN 已配置)'
-            : '[ADMIN] 管理后台: /admin · 警告: 未配置 ADMIN_TOKEN,生产环境(NODE_ENV=production)下将禁用');
+            ? '[ADMIN] 管理后台 /admin 与监控面板 /monitor 共用 ADMIN_TOKEN(已配置)'
+            : '[ADMIN] 管理后台与监控面板共用 ADMIN_TOKEN · 警告: 未配置,生产环境(NODE_ENV=production)下将禁用');
     });
 }
 main().catch(err => {

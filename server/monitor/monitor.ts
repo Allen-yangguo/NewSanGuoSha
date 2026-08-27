@@ -10,7 +10,7 @@
  *    GET /api/monitor/summary   实时快照(在线/对局/今日请求/QPS/流量/内存/运行时长)
  *    GET /api/monitor/series    时间序列(分钟级 ≤24h,小时级 >24h)+ 窗口内 Top 路由/状态码
  *    GET /api/monitor/status    轻量健康检查
- *  - 鉴权: MONITOR_TOKEN 环境变量
+ *  - 鉴权: 与管理后台统一,只配置 ADMIN_TOKEN 一个环境变量(见 ../auth/adminAuth)
  *      - 已配置  -> 所有 /api/monitor/* 需 ?token= 或 Authorization: Bearer
  *      - 未配置  -> 生产环境直接禁用(403),开发环境放行(便于本地调试)
  *  - Web 面板: GET /monitor 托管 dashboard.html(数据仍走受保护的 API)
@@ -18,6 +18,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Router, Request, Response, NextFunction } from 'express';
+import { checkAdminAuth, isAdminAuthConfigured } from '../auth/adminAuth';
 
 // ============================================================
 // 配置
@@ -26,8 +27,6 @@ const WINDOW_MINUTES = 1440; // 内存保留最近 24 小时(分钟级)
 const SAMPLE_INTERVAL_MS = 5000; // 在线/对局采样间隔
 const FLUSH_INTERVAL_MS = 60 * 60 * 1000; // 每小时落盘一次
 const MONITOR_DIR = path.resolve(process.cwd(), 'data', 'monitor');
-const TOKEN = process.env.MONITOR_TOKEN || '';
-const IS_PROD = process.env.NODE_ENV === 'production';
 
 // ============================================================
 // 数据结构
@@ -113,14 +112,6 @@ function clampInt(v: unknown, def: number, min: number, max: number): number {
   const n = parseInt(String(v), 10);
   if (Number.isNaN(n)) return def;
   return Math.min(max, Math.max(min, n));
-}
-
-/** 常量时间比较,避免时序攻击 */
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
 }
 
 /** 路由归一化: 静态资源合并、socket.io 归并,避免动态路径撑爆统计表 */
@@ -281,34 +272,11 @@ function sumOfWindow(list: MinuteBucket[], fromTs: number): { requests: number; 
 }
 
 // ============================================================
-// 鉴权
-// ============================================================
-function checkAuth(req: Request, res: Response, next: NextFunction): void {
-  if (!TOKEN) {
-    if (IS_PROD) {
-      res.status(403).json({
-        ok: false,
-        code: 'MONITOR_DISABLED',
-        message: '未配置 MONITOR_TOKEN,监控接口已禁用。请在 Zeabur 环境变量中添加 MONITOR_TOKEN。',
-      });
-      return;
-    }
-    return next(); // 开发环境无 token 放行
-  }
-  const bearer = req.headers.authorization || '';
-  const fromHeader = bearer.startsWith('Bearer ') ? bearer.slice(7) : '';
-  const fromQuery = typeof req.query.token === 'string' ? req.query.token : '';
-  const provided = fromHeader || fromQuery;
-  if (provided && safeEqual(provided, TOKEN)) return next();
-  res.status(401).json({ ok: false, code: 'UNAUTHORIZED', message: '需要有效的 MONITOR_TOKEN' });
-}
-
-// ============================================================
-// 对外 API
+// 鉴权(统一使用管理后台 ADMIN_TOKEN,见 ../auth/adminAuth)
 // ============================================================
 export function createMonitorRouter(): Router {
   const router = Router();
-  router.use(checkAuth);
+  router.use(checkAdminAuth);
 
   // 实时快照
   router.get('/summary', (_req: Request, res: Response) => {
@@ -330,7 +298,7 @@ export function createMonitorRouter(): Router {
         memoryRss: process.memoryUsage().rss,
       },
       config: {
-        tokenConfigured: !!TOKEN,
+        tokenConfigured: isAdminAuthConfigured(),
         retentionMinutes: WINDOW_MINUTES,
         sampleSeconds: Math.round(SAMPLE_INTERVAL_MS / 1000),
       },

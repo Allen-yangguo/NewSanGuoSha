@@ -143,9 +143,9 @@
 <div id="overlay">
   <div class="dialog">
     <h2 id="dlgTitle">🔒 监控面板需要授权</h2>
-    <p id="dlgDesc">请输入部署时配置的 MONITOR_TOKEN 环境变量值。</p>
+    <p id="dlgDesc">请输入部署时配置的 ADMIN_TOKEN 环境变量值。</p>
     <div class="err" id="dlgErr"></div>
-    <input type="password" id="dlgToken" placeholder="MONITOR_TOKEN" autocomplete="off" />
+    <input type="password" id="dlgToken" placeholder="ADMIN_TOKEN" autocomplete="off" />
     <button id="dlgBtn">确认</button>
   </div>
 </div>
@@ -153,7 +153,7 @@
 <script>
 (() => {
   'use strict';
-  let token = localStorage.getItem('monitorToken') || '';
+  let token = localStorage.getItem('adminToken') || localStorage.getItem('monitorToken') || '';
   let rangeMinutes = parseInt(localStorage.getItem('monitorRange') || '1440', 10);
   document.getElementById('range').value = String(rangeMinutes);
   let refreshing = false;    // 刷新是否在途
@@ -199,7 +199,7 @@
   }
   function showLogin(msg) {
     $('dlgTitle').textContent = '🔒 监控面板需要授权';
-    $('dlgDesc').textContent = '请输入部署时配置的 MONITOR_TOKEN 环境变量值。';
+    $('dlgDesc').textContent = '请输入部署时配置的 ADMIN_TOKEN 环境变量值。';
     $('dlgErr').textContent = msg || '';
     if (!loginShown) {
       // 仅在弹窗首次出现时清空输入框;输入过程中不再打断
@@ -219,7 +219,7 @@
     if (disabledShown) return;
     disabledShown = true;
     $('dlgTitle').textContent = '⛔ 监控未启用';
-    $('dlgDesc').innerHTML = '服务器未配置 <b>MONITOR_TOKEN</b>,监控接口在生产环境已禁用。<br>请在 Zeabur 环境变量中添加 MONITOR_TOKEN 后重新部署。';
+    $('dlgDesc').innerHTML = '服务器未配置 <b>ADMIN_TOKEN</b>,监控接口在生产环境已禁用。<br>请在 Zeabur 环境变量中添加 ADMIN_TOKEN 后重新部署。';
     $('dlgErr').textContent = '';
     $('overlay').classList.add('show');
     pausePoll();
@@ -228,7 +228,7 @@
     const v = $('dlgToken').value.trim();
     if (!v) { $('dlgErr').textContent = '请输入 token'; return; }
     token = v;
-    localStorage.setItem('monitorToken', v);
+    localStorage.setItem('adminToken', v);
     hideLogin(); // 先收起弹窗,立即可见;随后用新 token 刷新
     refresh();
   });
