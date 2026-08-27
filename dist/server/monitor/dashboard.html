@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>新三国杀 · 流量监控</title>
+<style>
+  :root {
+    --bg: #14171f;
+    --panel: #1c212c;
+    --panel2: #232a37;
+    --border: #2e3646;
+    --text: #dbe2ee;
+    --muted: #8b95a7;
+    --accent: #d9a441;
+    --blue: #4f8cff;
+    --green: #43c98a;
+    --red: #e05b5b;
+    --gold: #c9a227;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    padding: 20px;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding-bottom: 16px; border-bottom: 1px solid var(--border); margin-bottom: 16px;
+  }
+  header h1 { font-size: 20px; color: var(--gold); letter-spacing: 1px; }
+  header h1 small { font-size: 13px; color: var(--muted); margin-left: 10px; letter-spacing: 0; }
+  header .spacer { flex: 1; }
+  header select, header button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; font-size: 13px; cursor: pointer;
+  }
+  header button:hover { border-color: var(--accent); }
+  #lastUpdate { font-size: 12px; color: var(--muted); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .card .label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .card .value { font-size: 26px; font-weight: 600; }
+  .card .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 12px;
+  }
+  .panel h2 { font-size: 14px; color: var(--accent); margin-bottom: 10px; font-weight: 600; }
+  .panel .legend { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .panel .legend b { color: var(--text); }
+  svg .axis { font-size: 10px; fill: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .bar-wrap { display: flex; align-items: center; gap: 8px; }
+  .bar { height: 10px; border-radius: 5px; background: var(--blue); min-width: 2px; }
+  .bar.ok { background: var(--green); }
+  .bar.bad { background: var(--red); }
+  #overlay {
+    position: fixed; inset: 0; background: rgba(8, 10, 14, 0.92); z-index: 10;
+    display: none; align-items: center; justify-content: center;
+  }
+  #overlay.show { display: flex; }
+  .dialog {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 28px 32px; max-width: 380px; width: 90%; text-align: center;
+  }
+  .dialog h2 { color: var(--gold); margin-bottom: 12px; font-size: 18px; }
+  .dialog p { color: var(--muted); font-size: 13px; line-height: 1.6; margin-bottom: 16px; }
+  .dialog input {
+    width: 100%; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; outline: none;
+  }
+  .dialog input:focus { border-color: var(--accent); }
+  .dialog button {
+    background: var(--gold); color: #1a1405; border: none; border-radius: 6px;
+    padding: 10px 22px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .dialog button:hover { filter: brightness(1.1); }
+  .err { color: var(--red); font-size: 13px; margin-bottom: 10px; min-height: 18px; }
+  .mono { font-family: Consolas, "Courier New", monospace; }
+  a.back { color: var(--muted); font-size: 12px; text-decoration: none; }
+  a.back:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚔ 新三国杀 · 流量监控<small>Traffic Monitor</small></h1>
+  <div class="spacer"></div>
+  <a class="back" href="/">← 返回游戏</a>
+  <select id="range" title="时间范围">
+    <option value="60">最近 1 小时</option>
+    <option value="360">最近 6 小时</option>
+    <option value="1440" selected>最近 24 小时</option>
+    <option value="10080">最近 7 天</option>
+  </select>
+  <button id="refreshBtn" title="立即刷新">刷新</button>
+  <span id="lastUpdate">—</span>
+</header>
+
+<div class="cards" id="cards"></div>
+
+<div class="grid2">
+  <div class="panel">
+    <h2>请求数 / 分钟</h2>
+    <div id="chartRequests"></div>
+  </div>
+  <div class="panel">
+    <h2>在线连接 &amp; 对局中桌数</h2>
+    <div class="legend"><b style="color:#4f8cff">━</b> 在线连接 &nbsp; <b style="color:#43c98a">┅</b> 对局中桌</div>
+    <div id="chartOnline"></div>
+  </div>
+</div>
+
+<div class="grid2">
+  <div class="panel">
+    <h2>响应流量 / 分钟 (bytes)</h2>
+    <div id="chartBytes"></div>
+  </div>
+  <div class="panel">
+    <h2>路由分布 (Top 15)</h2>
+    <table>
+      <thead><tr><th>路由</th><th class="num">请求数</th><th class="num">占比</th></tr></thead>
+      <tbody id="routeRows"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>状态码分布</h2>
+  <div id="statusBars"></div>
+</div>
+
+<div id="overlay">
+  <div class="dialog">
+    <h2 id="dlgTitle">🔒 监控面板需要授权</h2>
+    <p id="dlgDesc">请输入部署时配置的 MONITOR_TOKEN 环境变量值。</p>
+    <div class="err" id="dlgErr"></div>
+    <input type="password" id="dlgToken" placeholder="MONITOR_TOKEN" autocomplete="off" />
+    <button id="dlgBtn">确认</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  let token = localStorage.getItem('monitorToken') || '';
+  let rangeMinutes = parseInt(localStorage.getItem('monitorRange') || '1440', 10);
+  document.getElementById('range').value = String(rangeMinutes);
+  let refreshing = false;    // 刷新是否在途
+  let refreshQueued = false; // 在途期间又有刷新请求 → 排队重跑(不再丢弃)
+  let loginShown = false;    // 登录弹窗当前是否可见
+  let disabledShown = false; // 禁用提示是否已显示
+  let pollTimer = null;      // 自动刷新定时器
+
+  // ---------- 工具 ----------
+  const $ = id => document.getElementById(id);
+  const fmt = n => (n == null ? '-' : Number(n).toLocaleString('zh-CN'));
+  function fmtBytes(n) {
+    if (!n || n < 1024) return (n || 0) + ' B';
+    const u = ['KB', 'MB', 'GB', 'TB'];
+    let i = -1;
+    do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
+    return n.toFixed(1) + ' ' + u[i];
+  }
+  function fmtDur(sec) {
+    sec = Math.floor(sec || 0);
+    const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600),
+          m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    const parts = [];
+    if (d) parts.push(d + '天');
+    if (h) parts.push(h + '时');
+    if (m) parts.push(m + '分');
+    if (s && !d && !h) parts.push(s + '秒');
+    return parts.join('') || '0秒';
+  }
+  const pad2 = n => String(n).padStart(2, '0');
+  function fmtTime(ts, isHour) {
+    const d = new Date(ts);
+    if (isHour) return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:00`;
+    return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  }
+
+  // ---------- 鉴权弹窗 ----------
+  function pausePoll() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+  function resumePoll() {
+    if (!pollTimer && !loginShown && !disabledShown) pollTimer = setInterval(refresh, 5000);
+  }
+  function showLogin(msg) {
+    $('dlgTitle').textContent = '🔒 监控面板需要授权';
+    $('dlgDesc').textContent = '请输入部署时配置的 MONITOR_TOKEN 环境变量值。';
+    $('dlgErr').textContent = msg || '';
+    if (!loginShown) {
+      // 仅在弹窗首次出现时清空输入框;输入过程中不再打断
+      loginShown = true;
+      $('dlgToken').value = '';
+      $('overlay').classList.add('show');
+      $('dlgToken').focus();
+    }
+    pausePoll(); // 弹窗期间暂停自动刷新,避免清空输入
+  }
+  function hideLogin() {
+    loginShown = false;
+    $('overlay').classList.remove('show');
+    resumePoll();
+  }
+  function showDisabled() {
+    if (disabledShown) return;
+    disabledShown = true;
+    $('dlgTitle').textContent = '⛔ 监控未启用';
+    $('dlgDesc').innerHTML = '服务器未配置 <b>MONITOR_TOKEN</b>,监控接口在生产环境已禁用。<br>请在 Zeabur 环境变量中添加 MONITOR_TOKEN 后重新部署。';
+    $('dlgErr').textContent = '';
+    $('overlay').classList.add('show');
+    pausePoll();
+  }
+  $('dlgBtn').addEventListener('click', () => {
+    const v = $('dlgToken').value.trim();
+    if (!v) { $('dlgErr').textContent = '请输入 token'; return; }
+    token = v;
+    localStorage.setItem('monitorToken', v);
+    hideLogin(); // 先收起弹窗,立即可见;随后用新 token 刷新
+    refresh();
+  });
+  $('dlgToken').addEventListener('keydown', e => { if (e.key === 'Enter') $('dlgBtn').click(); });
+
+  // ---------- API ----------
+  async function api(path) {
+    const hadToken = !!token; // 记录本次请求发出时是否已带 token
+    const sep = path.includes('?') ? '&' : '?';
+    const url = hadToken ? `${path}${sep}token=${encodeURIComponent(token)}` : path;
+    let r;
+    try {
+      r = await fetch(url, { cache: 'no-store' });
+    } catch (e) {
+      return { ok: false, networkError: true };
+    }
+    if (r.status === 401) return { ok: false, unauthorized: true, hadToken };
+    if (r.status === 403) {
+      const j = await r.json().catch(() => ({}));
+      if (j.code === 'MONITOR_DISABLED') return { ok: false, disabled: true };
+    }
+    if (!r.ok) return null;
+    return r.json();
+  }
+
+  // ---------- 图表 ----------
+  function renderLine(svgId, data, opts) {
+    const el = $(svgId);
+    if (!data || !data.length) {
+      el.innerHTML = '<div style="color:#8b95a7;font-size:12px;padding:30px;text-align:center">暂无数据</div>';
+      return;
+    }
+    const H = 160, padL = 52, padR = 10, padT = 12, padB = 22;
+    const W = Math.max(el.clientWidth || 720, 320);
+    const iw = W - padL - padR, ih = H - padT - padB;
+    const isHour = !!opts.hour;
+    let max = 1;
+    for (const d of data) max = Math.max(max, d.value);
+    if (opts.v2 !== undefined) for (const d of data) max = Math.max(max, d.v2);
+    max = max * 1.08;
+    const x = i => padL + (data.length === 1 ? iw / 2 : (i / (data.length - 1)) * iw);
+    const y = v => padT + ih - (v / max) * ih;
+    let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">`;
+    for (let g = 0; g <= 4; g++) {
+      const gy = padT + (ih * g) / 4;
+      const val = max * (1 - g / 4);
+      svg += `<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W - padR}" y2="${gy.toFixed(1)}" stroke="#2a2f3a" stroke-width="1"/>`;
+      svg += `<text x="${padL - 6}" y="${(gy + 4).toFixed(1)}" text-anchor="end" class="axis">${fmt(opts.yFormat ? opts.yFormat(val) : Math.round(val))}</text>`;
+    }
+    const step = Math.max(1, Math.ceil(data.length / 6));
+    for (let i = 0; i < data.length; i += step) {
+      svg += `<text x="${x(i).toFixed(1)}" y="${H - 6}" text-anchor="middle" class="axis">${fmtTime(data[i].ts, isHour)}</text>`;
+    }
+    const line = (arr, color, dash) => {
+      const pts = arr.map((d, i) => `${x(i).toFixed(1)},${y(d).toFixed(1)}`).join(' ');
+      return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"${dash ? ` stroke-dasharray="${dash}"` : ''}/>`;
+    };
+    if (opts.fill !== false) {
+      const pts = data.map((d, i) => `${x(i).toFixed(1)},${y(d.value).toFixed(1)}`).join(' ');
+      svg += `<polygon points="${padL},${(padT + ih).toFixed(1)} ${pts} ${x(data.length - 1).toFixed(1)},${(padT + ih).toFixed(1)}" fill="${opts.color || '#4f8cff'}" opacity="0.14"/>`;
+    }
+    svg += line(data.map(d => d.value), opts.color || '#4f8cff');
+    if (opts.v2 !== undefined) svg += line(data.map(d => d.v2), opts.v2Color || '#43c98a', '4 3');
+    const show = Math.min(data.length, 240);
+    const skip = Math.max(1, Math.floor(data.length / show));
+    for (let i = 0; i < data.length; i += skip) {
+      const tip = `${fmtTime(data[i].ts, isHour)}\n${opts.label || '值'}: ${fmt(opts.yFormat ? opts.yFormat(data[i].value) : data[i].value)}` +
+        (opts.v2 !== undefined ? `\n${opts.v2Label || 'v2'}: ${fmt(data[i].v2)}` : '');
+      svg += `<rect x="${x(i) - 3}" y="${padT}" width="6" height="${ih}" fill="transparent"><title>${tip}</title></rect>`;
+    }
+    svg += '</svg>';
+    el.innerHTML = svg;
+  }
+
+  // ---------- 渲染 ----------
+  function renderSummary(d) {
+    const { live, today, server, config } = d;
+    const cards = [
+      { label: '当前在线连接', value: fmt(live.online), sub: 'Socket.IO 连接数' },
+      { label: '对局中桌数', value: fmt(live.activeTables), sub: '5 桌大厅' },
+      { label: '今日请求', value: fmt(today.requests), sub: `约 ${fmtBytes(today.bytesOut)} 响应` },
+      { label: '请求速率', value: live.requestsLastMinute + '/分', sub: `QPS ≈ ${(live.qps || 0).toFixed(2)}` },
+      { label: '累计请求(本次运行)', value: fmt(live.totalRequests), sub: `入 ${fmtBytes(live.bytesInTotal)} / 出 ${fmtBytes(live.bytesOutTotal)}` },
+      { label: '运行时长', value: fmtDur(server.uptimeSec), sub: '自 ' + new Date(server.startedAt).toLocaleString('zh-CN') },
+      { label: '内存占用', value: fmtBytes(server.memoryRss), sub: 'Node ' + server.node },
+      { label: '数据窗口', value: config.retentionMinutes + ' 分钟', sub: `采样 ${config.sampleSeconds}s · 落盘 1h` },
+    ];
+    $('cards').innerHTML = cards.map(c =>
+      `<div class="card"><div class="label">${c.label}</div><div class="value">${c.value}</div><div class="sub">${c.sub}</div></div>`
+    ).join('');
+  }
+
+  function renderSeries(d) {
+    const s = d.series || [];
+    const hour = d.bucket === 'hour';
+    renderLine('chartRequests', s.map(b => ({ ts: b.ts, value: b.requests })), { hour, color: '#4f8cff', label: '请求' });
+    renderLine('chartOnline', s.map(b => ({ ts: b.ts, value: b.online, v2: b.activeTables })), {
+      hour, color: '#4f8cff', v2Color: '#43c98a', v2: true, label: '在线', v2Label: '对局中',
+    });
+    renderLine('chartBytes', s.map(b => ({ ts: b.ts, value: b.bytesOut })), {
+      hour, color: '#c9a227', label: '响应流量', yFormat: v => fmtBytes(v),
+    });
+    const total = (d.topRoutes || []).reduce((a, r) => a + r.count, 0) || 1;
+    $('routeRows').innerHTML = (d.topRoutes || []).map(r =>
+      `<tr><td class="mono">${r.route}</td><td class="num">${fmt(r.count)}</td><td class="num">${(r.count / total * 100).toFixed(1)}%</td></tr>`
+    ).join('') || '<tr><td colspan="3" style="color:#8b95a7">暂无数据</td></tr>';
+    const stTotal = (d.topStatus || []).reduce((a, s) => a + s.count, 0) || 1;
+    $('statusBars').innerHTML = (d.topStatus || []).map(st => {
+      const w = Math.max(2, (st.count / stTotal * 100));
+      const cls = st.status[0] === '2' ? 'ok' : st.status[0] === '3' ? '' : 'bad';
+      return `<div class="bar-wrap" style="margin-bottom:8px">
+        <span style="width:48px" class="mono">${st.status}</span>
+        <div class="bar ${cls}" style="width:${w}%"></div>
+        <span class="num" style="width:70px;text-align:right">${fmt(st.count)}</span>
+      </div>`;
+    }).join('') || '<div style="color:#8b95a7">暂无数据</div>';
+  }
+
+  async function refresh() {
+    if (refreshing) { refreshQueued = true; return; } // 在途 → 排队,不丢弃
+    refreshing = true;
+    try {
+      const [sum, ser] = await Promise.all([api('/api/monitor/summary'), api(`/api/monitor/series?minutes=${rangeMinutes}`)]);
+      const unauth = (sum && sum.unauthorized) || (ser && ser.unauthorized);
+      if (unauth) {
+        // 本次请求发出时带了 token 才说明令牌无效;否则只是尚未登录
+        showLogin(unauth.hadToken ? '令牌无效或已过期,请重新输入' : '请输入监控密码');
+      } else if ((sum && sum.disabled) || (ser && ser.disabled)) {
+        showDisabled();
+      } else {
+        if (sum && sum.ok) renderSummary(sum);
+        if (ser && ser.ok) renderSeries(ser);
+        if (loginShown) hideLogin(); // 登录成功 → 自动收起弹窗
+        $('lastUpdate').textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN');
+      }
+    } finally {
+      refreshing = false;
+      if (refreshQueued) { refreshQueued = false; refresh(); }
+    }
+  }
+
+  $('range').addEventListener('change', () => {
+    rangeMinutes = parseInt($('range').value, 10);
+    localStorage.setItem('monitorRange', String(rangeMinutes));
+    refresh();
+  });
+  $('refreshBtn').addEventListener('click', refresh);
+
+  refresh();
+  resumePoll(); // 首次刷新若触发登录弹窗,会自动暂停轮询
+})();
+</script>
+</body>
+</html>

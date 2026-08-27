@@ -35,6 +35,13 @@ class GameEngine {
         this.emergencyHealPending = null;
         /** 历史日志（用于 UI 显示与调试） */
         this.logs = [];
+        /** 单局得分追踪 */
+        this.scoreTracker = {
+            firstBloodPid: null,
+            attackHits: [0, 0],
+            ultimateKills: [0, 0],
+            combatScore: [0, 0],
+        };
         this.state = new GameState_1.GameState();
     }
     /** 日志 */
@@ -52,6 +59,40 @@ class GameEngine {
         this.turn.phase = types_1.TurnPhase.Action;
         this.turn.subPhase = TurnMachine_1.ActionSubPhase.Idle;
         this.log(`对局开始 · 玩家 ${this.state.firstPlayer + 1} 先手`);
+    }
+    /** 局末结算：计算双方最终得分 */
+    getSettlement() {
+        const winner = this.state.result?.winner ?? null;
+        const rounds = this.state.roundCount;
+        const st = this.scoreTracker;
+        const breakdown = [0, 1].map(pid => {
+            const isWinner = winner === pid;
+            const isLoser = winner !== null && winner !== pid;
+            const isDraw = winner === null;
+            const combat = isLoser ? 0 : st.combatScore[pid]; // 失败方不计战斗分
+            const firstBlood = st.firstBloodPid === pid ? 10 : 0;
+            const victoryBonus = isWinner ? 50 : 0;
+            const speedBonus = isWinner
+                ? (rounds <= 5 ? 30 : rounds <= 10 ? 20 : rounds <= 15 ? 10 : 5)
+                : 0;
+            const hpBonus = isWinner
+                ? Math.floor((this.state.players[pid].hp / BattleState_1.HP_MAX) * 20)
+                : 0;
+            const lossPenalty = isLoser ? -20 : 0;
+            return {
+                combatScore: combat,
+                firstBlood,
+                victoryBonus,
+                speedBonus,
+                hpBonus,
+                lossPenalty,
+            };
+        });
+        const scores = [
+            breakdown[0].combatScore + breakdown[0].firstBlood + breakdown[0].victoryBonus + breakdown[0].speedBonus + breakdown[0].hpBonus + breakdown[0].lossPenalty,
+            breakdown[1].combatScore + breakdown[1].firstBlood + breakdown[1].victoryBonus + breakdown[1].speedBonus + breakdown[1].hpBonus + breakdown[1].lossPenalty,
+        ];
+        return { winner, scores, breakdown, roundCount: rounds };
     }
     /** 获取当前行动玩家 */
     get activePlayer() { return this.state.players[this.turn.activePlayer]; }
@@ -277,6 +318,9 @@ class GameEngine {
             ignoreArmor: true,
             ignoreBagua: true,
         });
+        // 得分追踪：绝杀 +15
+        this.scoreTracker.ultimateKills[actor] += 1;
+        this.scoreTracker.combatScore[actor] += 15;
         if (this.state.gameOver) {
             return { ok: true, message: `绝杀击杀 · 游戏结束`, triggeredUltimate: true, triggeredDamage: true };
         }
@@ -419,6 +463,14 @@ class GameEngine {
         this.usedArmorCards = [];
         this.defensePool = 0;
         if (finalDamage > 0) {
+            // 得分追踪：攻击命中 +5，一血额外 +10
+            const atkPid = atk.attacker;
+            this.scoreTracker.attackHits[atkPid] += 1;
+            if (this.scoreTracker.firstBloodPid === null) {
+                this.scoreTracker.firstBloodPid = atkPid;
+                this.scoreTracker.combatScore[atkPid] += 10;
+            }
+            this.scoreTracker.combatScore[atkPid] += 5;
             this.applyDamage(atk.defender, finalDamage, {
                 source: atk.source,
                 isYiTianJian: atk.isYiTianJian,

@@ -6,8 +6,9 @@ exports.createAuthRouter = createAuthRouter;
  *
  * 接口:
  *   POST /api/auth/send-code      { phone, purpose: 'register'|'reset' }
- *   POST /api/auth/register        { phone, password, code }
- *   POST /api/auth/login           { phone, password }
+ *   POST /api/auth/register        { phone, password, code, nickname }        手机号注册
+ *                                  或 { username, password, nickname }        用户名注册(无验证码)
+ *   POST /api/auth/login           { account, password }   account 支持手机号或用户名
  *   POST /api/auth/reset-password  { phone, code, newPassword }
  *   POST /api/auth/guest
  *   GET  /api/auth/me              (Authorization: Bearer <token>)
@@ -17,26 +18,35 @@ const authService_1 = require("./authService");
 function createAuthRouter() {
     const router = (0, express_1.Router)();
     // 发送验证码
-    router.post('/send-code', (req, res) => {
+    router.post('/send-code', async (req, res) => {
         const { phone, purpose } = req.body || {};
         if (!phone || (purpose !== 'register' && purpose !== 'reset')) {
             return res.json({ ok: false, message: '参数错误' });
         }
-        return res.json((0, authService_1.requestCode)(phone, purpose));
+        return res.json(await (0, authService_1.requestCode)(phone, purpose));
     });
-    // 注册
+    // 注册(手机号模式需验证码;用户名模式只需用户名+密码)
     router.post('/register', (req, res) => {
-        const { phone, password, code } = req.body || {};
+        const body = req.body || {};
+        // 用户名注册模式
+        if (body.username) {
+            const { username, password, nickname } = body;
+            if (!username || !password)
+                return res.json({ ok: false, message: '参数错误' });
+            return res.json((0, authService_1.registerByUsername)(username, password, nickname));
+        }
+        // 手机号注册模式
+        const { phone, password, code, nickname } = body;
         if (!phone || !password || !code)
             return res.json({ ok: false, message: '参数错误' });
-        return res.json((0, authService_1.register)(phone, password, code));
+        return res.json((0, authService_1.register)(phone, password, code, nickname));
     });
-    // 登录
+    // 登录(account 支持手机号或用户名)
     router.post('/login', (req, res) => {
-        const { phone, password } = req.body || {};
-        if (!phone || !password)
+        const { account, password } = req.body || {};
+        if (!account || !password)
             return res.json({ ok: false, message: '参数错误' });
-        return res.json((0, authService_1.login)(phone, password));
+        return res.json((0, authService_1.login)(account, password));
     });
     // 忘记密码
     router.post('/reset-password', (req, res) => {
@@ -57,6 +67,16 @@ function createAuthRouter() {
         if (!payload)
             return res.json({ ok: false, message: '未登录或登录已过期' });
         return res.json((0, authService_1.getUserByUid)(payload.uid));
+    });
+    // 修改昵称(需 Bearer token)
+    router.post('/nickname', (req, res) => {
+        const auth = req.headers.authorization || '';
+        const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+        const payload = token ? (0, authService_1.verifyToken)(token) : null;
+        if (!payload)
+            return res.json({ ok: false, message: '未登录或登录已过期' });
+        const { nickname } = req.body || {};
+        return res.json((0, authService_1.updateNickname)(payload.uid, nickname || ''));
     });
     return router;
 }

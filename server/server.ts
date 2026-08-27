@@ -40,6 +40,13 @@ import { createAuthRouter } from './auth/routes';
 import { verifyToken, getUserByUid } from './auth/authService';
 import { getDb } from './auth/db';
 import { getRecordSummary, settleGame } from './auth/recordService';
+import {
+  createMonitorRouter,
+  httpMiddleware,
+  startMonitor,
+  stopMonitor,
+  dashboardHandler,
+} from './monitor/monitor';
 
 // ============================================================
 // 配置
@@ -404,9 +411,14 @@ function tryAutoEndAction(io: IOServer, table: Table): void {
 // ============================================================
 const app = express();
 app.use(cors());
+// 流量监控: 采集所有业务 HTTP 请求(路由/状态码/字节)。
+// 必须放在 express.json 之前,否则 body 解析失败的请求(400)不会被统计
+app.use(httpMiddleware);
 app.use(express.json());
 // 用户认证 REST 接口
 app.use('/api/auth', createAuthRouter());
+// 流量监控 REST 接口(MONITOR_TOKEN 保护)
+app.use('/api/monitor', createMonitorRouter());
 
 // 静态托管：基于 process.cwd() 解析 client/dist，兼容 ts-node 和编译后运行
 // ts-node 运行 server/server.ts 时 cwd 是项目根
@@ -425,10 +437,15 @@ app.get('/__status', (_req: express.Request, res: express.Response) => {
   res.json({ status: lines.join(' ｜ '), tables: summaries });
 });
 
+// 流量监控面板页面(数据走受保护的 /api/monitor/*)
+app.get('/monitor', dashboardHandler);
+
 // SPA 兜底：所有未匹配路由都返回前端 index.html
 app.use((_req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (_req.path.startsWith('/socket.io/')) return next(); // 不拦截 socket.io
   if (_req.path === '/__status') return next();
+  if (_req.path === '/monitor') return next();
+  if (_req.path.startsWith('/api/monitor')) return next();
   res.sendFile(path.join(clientDist, 'index.html'), (err: any) => {
     if (err) {
       res.status(500).type('html').send(`
@@ -896,6 +913,11 @@ async function main() {
   }
   const ip = getLanIp();
   const lanUrl = `http://${ip}:${PORT}`;
+  // 流量监控: 注入实时采样(在线连接数、对局中桌数)
+  startMonitor(() => ({
+    online: io.engine.clientsCount,
+    activeTables: tables.filter(t => t.started).length,
+  }));
   server.listen(PORT, BIND_HOST, async () => {
     console.log('');
     console.log('╔══════════════════════════════════════════════════╗');
@@ -929,3 +951,12 @@ process.on('unhandledRejection', (reason) => {
   console.error('=== unhandledRejection ===', reason);
   process.exit(1);
 });
+
+// 优雅退出: 收到 SIGTERM/SIGINT(Zeabur 重新部署/停止时发送 SIGTERM)先落盘监控数据
+function shutdown(signal: string): void {
+  console.log(`[SERVER] 收到 ${signal},正在保存监控数据并退出...`);
+  stopMonitor();
+  process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

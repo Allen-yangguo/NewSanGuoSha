@@ -41,6 +41,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
  *  - 客户端仅提交操作指令、接收「区分视角」的状态推送
  *  - 手牌严格隔离：p1 永远收不到 p2.handCards，反之亦然
  *
+ * 大厅模式（参考 QQ 游戏大厅）：
+ *  - 5 个独立桌并行，每桌 2 座（p1/p2），可同时进行 5 个独立对局
+ *  - 玩家进大厅看 5 桌状态，选空座坐下
+ *  - 坐下后点「准备」按钮，双方都准备才开局
+ *  - 每桌用 socket.io room `table-${id}` 隔离事件广播
+ *
  *  未来迁移云服务器：
  *  - 仅需改 listen(PORT, '0.0.0.0')、云厂商安全组/防火墙放行端口
  *  - 游戏逻辑、事件协议、前端代码完全不变
@@ -59,12 +65,14 @@ const BattleState_1 = require("../assets/scripts/core/BattleState");
 const routes_1 = require("./auth/routes");
 const authService_1 = require("./auth/authService");
 const db_1 = require("./auth/db");
+const recordService_1 = require("./auth/recordService");
+const monitor_1 = require("./monitor/monitor");
 // ============================================================
 // 配置
 // ============================================================
 const PORT = Number(process.env.PORT || 3000);
 const BIND_HOST = process.env.BIND_HOST || '0.0.0.0'; // 局域网/公网均需 0.0.0.0
-const ROOM_ID = 'sanguosha-room-001'; // 单房间模式：固定房间号
+const TABLE_COUNT = 5; // 大厅并行桌数
 // ============================================================
 // 工具：获取本机局域网 IPv4
 // ============================================================
@@ -85,21 +93,46 @@ function getLanIp() {
     }
     return candidates[0] || '127.0.0.1';
 }
-const room = {
+const tables = Array.from({ length: TABLE_COUNT }, (_, i) => ({
+    id: i + 1,
     engine: new GameEngine_1.GameEngine(),
     started: false,
     players: {
-        p1: { socketId: null, pid: 0, name: '玩家1（先手方）', userId: null },
-        p2: { socketId: null, pid: 1, name: '玩家2（后手方）', userId: null },
+        p1: { socketId: null, pid: 0, name: '玩家1', userId: null, ready: false },
+        p2: { socketId: null, pid: 1, name: '玩家2', userId: null, ready: false },
     },
-    spectators: [],
-};
+}));
+/** 桌 room 名（socket.io room）*/
+function tableRoom(id) {
+    return `table-${id}`;
+}
+/** 清空指定座位
+ *  - keepIdentity=true：仅清 socketId（断线保留 userId/姓名供重连）
+ *  - keepIdentity=false：完全清空（换座/站起/大厅离线）
+ */
+function clearSeat(table, slot, keepIdentity) {
+    const seat = table.players[slot];
+    seat.socketId = null;
+    if (!keepIdentity) {
+        seat.userId = null;
+        seat.ready = false;
+        seat.name = slot === 'p1' ? '玩家1' : '玩家2';
+    }
+}
+/** 整桌重置（引擎重建、started/ready 复位、座位清空）*/
+function resetTable(table) {
+    table.engine = new GameEngine_1.GameEngine();
+    table.started = false;
+    for (const s of ['p1', 'p2']) {
+        clearSeat(table, s, false);
+    }
+}
 function strategyToView(s) {
     return { type: s.type, layers: s.layers, remainingTurns: s.remainingTurns, sourceCardUid: s.sourceCardUid };
 }
-function buildPlayerView(slot, mePid) {
-    const slotInfo = room.players[slot];
-    const p = room.engine.state.players[slotInfo.pid];
+function buildPlayerView(slot, mePid, table) {
+    const slotInfo = table.players[slot];
+    const p = table.engine.state.players[slotInfo.pid];
     const isMe = slotInfo.pid === mePid;
     return {
         pid: slotInfo.pid,
@@ -126,95 +159,163 @@ function buildPlayerView(slot, mePid) {
     };
 }
 /**
- * 为某个 socket（玩家视角）生成过滤后的房间状态
+ * 为某个 socket（玩家视角）生成过滤后的桌内状态
  */
-function buildRoomState(socketId) {
+function buildRoomState(socketId, table) {
     // 找出这个 socket 在 p1 / p2 哪个槽
     let yourSlot = null;
-    if (room.players.p1.socketId === socketId)
+    if (table.players.p1.socketId === socketId)
         yourSlot = 'p1';
-    else if (room.players.p2.socketId === socketId)
+    else if (table.players.p2.socketId === socketId)
         yourSlot = 'p2';
-    const yourPid = yourSlot ? room.players[yourSlot].pid : null;
-    const me = yourPid !== null ? buildPlayerView(yourSlot, yourPid) : null;
+    const yourPid = yourSlot ? table.players[yourSlot].pid : null;
+    const me = yourPid !== null ? buildPlayerView(yourSlot, yourPid, table) : null;
     // opponent 用另一个槽的 pid 构造（mePid 保持你自己，确保对手 handCards=[]）
     const oppSlot = yourSlot === 'p1' ? 'p2' : 'p1';
-    const opponent = yourPid !== null ? buildPlayerView(oppSlot, yourPid) : null;
-    const defensePid = room.engine.turn.isAwaitingDefense() && room.engine.pendingAttack
-        ? room.engine.pendingAttack.defender
+    const opponent = yourPid !== null ? buildPlayerView(oppSlot, yourPid, table) : null;
+    const defensePid = table.engine.turn.isAwaitingDefense() && table.engine.pendingAttack
+        ? table.engine.pendingAttack.defender
         : null;
-    const isReflect = room.engine.turn.isAwaitingDefense() && room.engine.pendingAttack?.isReflect === true;
+    const isReflect = table.engine.turn.isAwaitingDefense() && table.engine.pendingAttack?.isReflect === true;
     return {
-        roomId: ROOM_ID,
-        started: room.started,
+        roomId: tableRoom(table.id),
+        started: table.started,
         yourSlot,
         yourPid,
-        roundCount: room.engine.state.roundCount,
-        turnPhase: room.engine.turn.phase,
-        activePid: room.engine.turn.activePlayer,
+        roundCount: table.engine.state.roundCount,
+        turnPhase: table.engine.turn.phase,
+        activePid: table.engine.turn.activePlayer,
         defensePid,
         isReflect,
-        emergencyHealPid: room.engine.emergencyHealPending,
-        firstPlayerPid: room.engine.state.firstPlayer,
-        guiBeiProtectorPid: room.engine.guiBeiProtector,
-        guiBeiRemainingTurns: room.engine.guiBeiRemainingTurns,
-        deckCount: room.engine.state.deck.length,
-        discardCount: room.engine.state.discard.length,
-        actionEnded: [...room.engine.state.actionEnded],
+        emergencyHealPid: table.engine.emergencyHealPending,
+        firstPlayerPid: table.engine.state.firstPlayer,
+        guiBeiProtectorPid: table.engine.guiBeiProtector,
+        guiBeiRemainingTurns: table.engine.guiBeiRemainingTurns,
+        combatScores: [...table.engine.scoreTracker.combatScore],
+        deckCount: table.engine.state.deck.length,
+        discardCount: table.engine.state.discard.length,
+        actionEnded: [...table.engine.state.actionEnded],
         you: me,
         opponent,
-        gameOver: room.engine.state.gameOver,
-        winner: room.engine.state.result?.winner ?? null,
-        gameOverDetail: room.engine.state.result?.detail ?? null,
-        logs: room.engine.logs.slice(-20),
+        gameOver: table.engine.state.gameOver,
+        winner: table.engine.state.result?.winner ?? null,
+        gameOverDetail: table.engine.state.result?.detail ?? null,
+        logs: table.engine.logs.slice(-20),
     };
 }
-function findCardByUid(pid, uid) {
-    return room.engine.state.players[pid].hand.find(c => c.uid === uid) || null;
+function findCardByUid(table, pid, uid) {
+    return table.engine.state.players[pid].hand.find(c => c.uid === uid) || null;
 }
-function slotOfPid(pid) { return pid === 0 ? 'p1' : 'p2'; }
-function socketOfPid(pid) {
-    return room.players[slotOfPid(pid)].socketId;
+// ============================================================
+// 大厅视图：单桌摘要
+// ============================================================
+function seatView(table, slot) {
+    const seat = table.players[slot];
+    const occupied = seat.socketId !== null || seat.userId !== null;
+    return {
+        name: occupied ? seat.name : null,
+        ready: seat.ready,
+        present: seat.socketId !== null,
+    };
+}
+function buildTableSummary(table) {
+    return {
+        id: table.id,
+        started: table.started,
+        p1: seatView(table, 'p1'),
+        p2: seatView(table, 'p2'),
+    };
+}
+function buildAllTableSummaries() {
+    return tables.map(buildTableSummary);
+}
+// ============================================================
+// 桌/座/玩家 路由辅助
+// ============================================================
+function getTable(socket) {
+    const tid = socket.data.tableId;
+    if (!tid)
+        return null;
+    return tables.find(t => t.id === tid) ?? null;
+}
+function getTableBySocketId(socketId) {
+    return tables.find(t => t.players.p1.socketId === socketId || t.players.p2.socketId === socketId) ?? null;
+}
+function getSlotInTable(socketId, table) {
+    if (table.players.p1.socketId === socketId)
+        return 'p1';
+    if (table.players.p2.socketId === socketId)
+        return 'p2';
+    return null;
+}
+function getPidBySocket(socket) {
+    const table = getTable(socket);
+    if (!table)
+        return null;
+    const slot = getSlotInTable(socket.id, table);
+    return slot ? table.players[slot].pid : null;
 }
 // ============================================================
 // 推送：给某个玩家推送自己视角的 roomState
 // ============================================================
-function pushRoomStateTo(io, socketId) {
-    io.to(socketId).emit('roomState', buildRoomState(socketId));
+function pushRoomStateTo(io, table, socketId) {
+    io.to(socketId).emit('roomState', buildRoomState(socketId, table));
 }
 /** 向 p1 / p2 各自推送自己视角的状态（最常用：状态变化后立刻调这个）*/
-function broadcastRoomState(io) {
+function broadcastRoomState(io, table) {
     for (const slot of ['p1', 'p2']) {
-        const sid = room.players[slot].socketId;
+        const sid = table.players[slot].socketId;
         if (sid)
-            pushRoomStateTo(io, sid);
+            pushRoomStateTo(io, table, sid);
     }
 }
-/** 向双方广播一个游戏事件（不含隐私数据）*/
-function broadcastEvent(io, event, payload) {
-    io.to(ROOM_ID).emit(event, payload);
+/** 向桌内双方广播一个游戏事件（不含隐私数据）*/
+function broadcastEvent(io, table, event, payload) {
+    io.to(tableRoom(table.id)).emit(event, payload);
+}
+/** 向全体连接广播桌列表（大厅用）*/
+function broadcastTableList(io) {
+    io.emit('tableList', buildAllTableSummaries());
+}
+/** 向全体广播单桌更新（大厅用）*/
+function broadcastTableUpdate(io, table) {
+    io.emit('tableUpdate', buildTableSummary(table));
+}
+/** 游戏结束时广播结算并更新战绩 */
+function broadcastSettlement(io, table) {
+    const settlement = table.engine.getSettlement();
+    // 更新双方战绩
+    for (const slot of ['p1', 'p2']) {
+        const uid = table.players[slot].userId;
+        const pid = table.players[slot].pid;
+        if (uid)
+            (0, recordService_1.settleGame)(uid, settlement, pid);
+    }
+    // 广播结算数据
+    broadcastEvent(io, table, 'eventGameSettlement', settlement);
 }
 /** 行动阶段：当前行动玩家无牌可出时自动结束行动 */
-function tryAutoEndAction(io, room) {
-    if (room.engine.state.gameOver)
+function tryAutoEndAction(io, table) {
+    if (table.engine.state.gameOver)
         return;
-    if (!room.engine.turn.isInActionPhase())
+    if (!table.engine.turn.isInActionPhase())
         return;
-    const actor = room.engine.turn.activePlayer;
-    if (room.engine.state.actionEnded[actor])
+    const actor = table.engine.turn.activePlayer;
+    if (table.engine.state.actionEnded[actor])
         return;
-    if (room.engine.canPlayAnyCard(actor))
+    if (table.engine.canPlayAnyCard(actor))
         return;
     // 无牌可出 → 自动结束行动
-    const r = room.engine.endActionPhase();
+    const r = table.engine.endActionPhase();
     if (r.ok) {
-        broadcastEvent(io, 'eventTurnEnd', { message: r.message });
-        if (room.engine.state.gameOver) {
-            broadcastEvent(io, 'eventGameOver', {
-                winner: room.engine.state.result?.winner ?? null,
-                reason: room.engine.state.result?.reason ?? null,
-                detail: room.engine.state.result?.detail ?? null,
+        broadcastEvent(io, table, 'eventTurnEnd', { message: r.message });
+        if (table.engine.state.gameOver) {
+            broadcastEvent(io, table, 'eventGameOver', {
+                winner: table.engine.state.result?.winner ?? null,
+                reason: table.engine.state.result?.reason ?? null,
+                detail: table.engine.state.result?.detail ?? null,
             });
+            broadcastSettlement(io, table);
         }
     }
 }
@@ -223,25 +324,40 @@ function tryAutoEndAction(io, room) {
 // ============================================================
 const app = express();
 app.use(cors());
+// 流量监控: 采集所有业务 HTTP 请求(路由/状态码/字节)。
+// 必须放在 express.json 之前,否则 body 解析失败的请求(400)不会被统计
+app.use(monitor_1.httpMiddleware);
 app.use(express.json());
 // 用户认证 REST 接口
 app.use('/api/auth', (0, routes_1.createAuthRouter)());
+// 流量监控 REST 接口(MONITOR_TOKEN 保护)
+app.use('/api/monitor', (0, monitor_1.createMonitorRouter)());
 // 静态托管：基于 process.cwd() 解析 client/dist，兼容 ts-node 和编译后运行
 // ts-node 运行 server/server.ts 时 cwd 是项目根
 // node dist/server/server.js 运行时 cwd 是项目根
 const clientDist = path.resolve(process.cwd(), 'client', 'dist');
 app.use(express.static(clientDist));
-// 健康检查 / 状态接口（公网部署无二维码，但保留状态接口给前端大厅用）
+// 健康检查 / 状态接口（5 桌摘要）
 app.get('/__status', (_req, res) => {
-    const p1 = room.players.p1.socketId ? '✅ 玩家1 已接入' : '⏳ 等待玩家1...';
-    const p2 = room.players.p2.socketId ? '✅ 玩家2 已接入' : '⏳ 等待玩家2...';
-    res.json({ status: `${p1} ｜ ${p2}`, started: room.started });
+    const summaries = buildAllTableSummaries();
+    const lines = summaries.map(t => {
+        const p1 = t.p1.name ? `${t.p1.name}${t.p1.ready ? '✓' : ''}${t.p1.present ? '' : '⌛'}` : '空';
+        const p2 = t.p2.name ? `${t.p2.name}${t.p2.ready ? '✓' : ''}${t.p2.present ? '' : '⌛'}` : '空';
+        return `桌${t.id}[${t.started ? '对战' : '等待'}]: ${p1} vs ${p2}`;
+    });
+    res.json({ status: lines.join(' ｜ '), tables: summaries });
 });
+// 流量监控面板页面(数据走受保护的 /api/monitor/*)
+app.get('/monitor', monitor_1.dashboardHandler);
 // SPA 兜底：所有未匹配路由都返回前端 index.html
 app.use((_req, res, next) => {
     if (_req.path.startsWith('/socket.io/'))
         return next(); // 不拦截 socket.io
     if (_req.path === '/__status')
+        return next();
+    if (_req.path === '/monitor')
+        return next();
+    if (_req.path.startsWith('/api/monitor'))
         return next();
     res.sendFile(path.join(clientDist, 'index.html'), (err) => {
         if (err) {
@@ -275,90 +391,172 @@ io.use((socket, next) => {
 // ============================================================
 io.on('connection', (socket) => {
     console.log(`[IO] 新连接：${socket.id}   IP=${socket.handshake.address}`);
-    // ---------- joinRoom：客户端加入房间（分配 p1/p2 槽）----------
-    socket.on('joinRoom', (payload = {}, ack) => {
+    // ---------- 大厅：坐下 ----------
+    // payload: { tableId: number, slot: Slot, name?: string }
+    socket.on('sitDown', (payload = {}, ack) => {
         const cb = typeof ack === 'function' ? ack : () => { };
+        const tableId = payload?.tableId;
+        const slot = payload?.slot;
+        if (typeof tableId !== 'number' || (slot !== 'p1' && slot !== 'p2')) {
+            return cb(false, { error: '参数错误' });
+        }
+        const table = tables.find(t => t.id === tableId);
+        if (!table)
+            return cb(false, { error: '桌不存在' });
         const auth = socket.data.auth;
         const userId = auth?.uid ?? null;
-        // 清理同 socketId / 同 userId 的旧占用(只清 socketId,保留 userId 以便按身份恢复)
-        for (const s of ['p1', 'p2']) {
-            const slot = room.players[s];
-            if (slot.socketId === socket.id || (userId && slot.userId === userId)) {
-                slot.socketId = null;
-            }
-        }
-        let mySlot = null;
-        // 1) 按 userId 恢复(服务端身份重连,比 localStorage 槽位更可靠)
-        if (userId) {
-            for (const s of ['p1', 'p2']) {
-                if (room.players[s].userId === userId && !room.players[s].socketId) {
-                    mySlot = s;
-                    break;
+        // 若已在别桌入座 → 先清旧座（自愿换座，完全清空）
+        const oldTable = getTableBySocketId(socket.id);
+        if (oldTable) {
+            const oldSlot = getSlotInTable(socket.id, oldTable);
+            if (oldSlot) {
+                if (oldTable.id === table.id && oldSlot === slot) {
+                    // 同座重复坐下：直接返回当前状态
+                    return cb(true, { tableId: table.id, slot, pid: table.players[slot].pid, started: table.started });
                 }
+                clearSeat(oldTable, oldSlot, false);
+                socket.leave(tableRoom(oldTable.id));
+                broadcastTableUpdate(io, oldTable);
             }
         }
-        // 2) 按 preferSlot（客户端 localStorage 记录的槽位）
-        if (!mySlot && payload?.preferSlot && !room.players[payload.preferSlot].socketId) {
-            mySlot = payload.preferSlot;
+        const seat = table.players[slot];
+        // 校验座位是否可入：
+        //  - 空（socketId null 且 userId null）→ 可入
+        //  - 自己的身份重连（userId 相同且 socketId null）→ 可入（重连）
+        //  - 已被在线玩家占用（socketId 非 null）或被他人身份持有（重连等待中）→ 拒绝
+        if (seat.socketId !== null) {
+            return cb(false, { error: '该座位已被占用' });
         }
-        // 3) 否则找空槽：优先 p1，再 p2
-        if (!mySlot) {
-            if (!room.players.p1.socketId)
-                mySlot = 'p1';
-            else if (!room.players.p2.socketId)
-                mySlot = 'p2';
+        if (seat.userId !== null && (!userId || seat.userId !== userId)) {
+            return cb(false, { error: '该座位等待原玩家重连' });
         }
-        if (!mySlot) {
-            cb(false, { error: '房间已满（两位玩家已齐）' });
-            return;
+        // 入座
+        seat.socketId = socket.id;
+        seat.userId = userId;
+        // 登录用户优先使用账号昵称；游客回退到 payload.name 或默认槽位名
+        let resolvedName = null;
+        if (userId) {
+            const userRes = (0, authService_1.getUserByUid)(userId);
+            if (userRes.ok && userRes.user?.nickname)
+                resolvedName = userRes.user.nickname;
         }
-        room.players[mySlot].socketId = socket.id;
-        room.players[mySlot].userId = userId;
-        if (payload?.name)
-            room.players[mySlot].name = payload.name;
-        socket.join(ROOM_ID);
-        console.log(`[IO] ${socket.id} 加入房间 -> ${mySlot} (pid=${room.players[mySlot].pid})${room.started ? ' · 重连' : ''}`);
-        // 如果两个槽都满了且对局未开始 → 自动开局
-        const bothReady = room.players.p1.socketId && room.players.p2.socketId;
-        if (bothReady && !room.started) {
-            room.engine = new GameEngine_1.GameEngine();
-            room.engine.initGame();
-            room.started = true;
-            console.log(`[Game] 两位玩家到齐 · 对局开始 · 先手=玩家${room.engine.state.firstPlayer + 1}`);
-            broadcastEvent(io, 'eventGameStart', {
-                firstPlayerPid: room.engine.state.firstPlayer,
-            });
-        }
-        else if (room.started) {
-            // 重连场景：对局进行中，主动给重连的 socket 推送 eventGameStart
-            // 避免客户端 state.started 没同步导致卡在大厅
-            io.to(socket.id).emit('eventGameStart', {
-                firstPlayerPid: room.engine.state.firstPlayer,
-            });
-            console.log(`[Game] ${mySlot} 重连 · 已补发 eventGameStart`);
-        }
+        if (resolvedName)
+            seat.name = resolvedName;
+        else if (payload?.name)
+            seat.name = payload.name;
+        // 重连场景不重置 ready（对局进行中 ready 无意义；大厅重连保留原 ready）
+        if (!table.started)
+            seat.ready = false;
+        socket.data.tableId = table.id;
+        socket.data.slot = slot;
+        socket.join(tableRoom(table.id));
+        console.log(`[IO] ${socket.id} 入桌${table.id} -> ${slot} (pid=${seat.pid})${table.started ? ' · 重连' : ''}`);
         cb(true, {
-            slot: mySlot,
-            pid: room.players[mySlot].pid,
-            roomId: ROOM_ID,
-            started: room.started,
+            tableId: table.id,
+            slot,
+            pid: seat.pid,
+            started: table.started,
         });
-        broadcastRoomState(io);
+        // 重连场景：对局进行中，主动给重连的 socket 补发 eventGameStart + roomState
+        if (table.started) {
+            io.to(socket.id).emit('eventGameStart', {
+                firstPlayerPid: table.engine.state.firstPlayer,
+            });
+            pushRoomStateTo(io, table, socket.id);
+        }
+        broadcastTableUpdate(io, table);
+        broadcastTableList(io);
+    });
+    // ---------- 大厅：站起（离开座位）----------
+    socket.on('standUp', (_payload, ack) => {
+        const cb = typeof ack === 'function' ? ack : () => { };
+        const table = getTable(socket);
+        if (!table)
+            return cb(true, { ok: true }); // 未入桌，无操作
+        const slot = getSlotInTable(socket.id, table);
+        if (!slot)
+            return cb(true, { ok: true });
+        clearSeat(table, slot, false);
+        socket.leave(tableRoom(table.id));
+        socket.data.tableId = null;
+        socket.data.slot = null;
+        // 两座都空 → 重置整桌
+        if (!table.players.p1.socketId && !table.players.p2.socketId) {
+            resetTable(table);
+        }
+        broadcastTableUpdate(io, table);
+        broadcastTableList(io);
+        cb(true, { ok: true });
+    });
+    // ---------- 大厅：准备 ----------
+    socket.on('ready', (_payload, ack) => {
+        const cb = typeof ack === 'function' ? ack : () => { };
+        const table = getTable(socket);
+        if (!table)
+            return cb(false, { error: '未入桌' });
+        if (table.started)
+            return cb(false, { error: '对局已开始' });
+        const slot = getSlotInTable(socket.id, table);
+        if (!slot)
+            return cb(false, { error: '未入桌' });
+        table.players[slot].ready = true;
+        cb(true, { ok: true });
+        broadcastTableUpdate(io, table);
+        // 双方都在线且都准备 → 开局
+        const bothPresent = table.players.p1.socketId && table.players.p2.socketId;
+        const bothReady = table.players.p1.ready && table.players.p2.ready;
+        if (bothPresent && bothReady && !table.started) {
+            table.engine = new GameEngine_1.GameEngine();
+            table.engine.initGame();
+            table.started = true;
+            // 开局后准备态清空（下一局需重新准备）
+            table.players.p1.ready = false;
+            table.players.p2.ready = false;
+            console.log(`[Game] 桌${table.id} 双方准备就绪 · 对局开始 · 先手=玩家${table.engine.state.firstPlayer + 1}`);
+            broadcastEvent(io, table, 'eventGameStart', {
+                firstPlayerPid: table.engine.state.firstPlayer,
+            });
+            broadcastRoomState(io, table);
+            broadcastTableUpdate(io, table);
+        }
+    });
+    // ---------- 大厅：取消准备 ----------
+    socket.on('cancelReady', (_payload, ack) => {
+        const cb = typeof ack === 'function' ? ack : () => { };
+        const table = getTable(socket);
+        if (!table)
+            return cb(false, { error: '未入桌' });
+        if (table.started)
+            return cb(false, { error: '对局已开始' });
+        const slot = getSlotInTable(socket.id, table);
+        if (!slot)
+            return cb(false, { error: '未入桌' });
+        table.players[slot].ready = false;
+        cb(true, { ok: true });
+        broadcastTableUpdate(io, table);
+    });
+    // ---------- 大厅：拉取桌列表 ----------
+    socket.on('getTableList', (_payload, ack) => {
+        const cb = typeof ack === 'function' ? ack : () => { };
+        cb(true, buildAllTableSummaries());
     });
     // ---------- 通用：出牌 ----------
     // payload: { cardUid: string }
     socket.on('playCard', (payload, ack) => {
         const cb = typeof ack === 'function' ? ack : () => { };
-        const pid = getPidBySocket(socket.id);
+        const table = getTable(socket);
+        if (!table)
+            return cb(false, { error: '未入桌' });
+        const pid = getPidBySocket(socket);
         if (pid === null)
-            return cb(false, { error: '未加入房间' });
-        if (!room.started)
+            return cb(false, { error: '未入桌' });
+        if (!table.started)
             return cb(false, { error: '对局未开始' });
-        const card = findCardByUid(pid, payload.cardUid);
+        const card = findCardByUid(table, pid, payload.cardUid);
         if (!card)
             return cb(false, { error: '手牌中找不到该卡（可能已打出）' });
         const before = { ...card.def }; // 广播用
-        const r = (0, CardEffect_1.applyCardEffect)(room.engine, card, pid);
+        const r = (0, CardEffect_1.applyCardEffect)(table.engine, card, pid);
         if (!r.ok) {
             cb(false, { error: r.message });
             return;
@@ -366,13 +564,13 @@ io.on('connection', (socket) => {
         // 广播「有玩家打出了某张牌」（双方可见）
         // 计算结算后攻击力（武将 → pendingAttack.damage，绝杀 → card.def.value）
         let attackPower;
-        if (r.triggeredDamage && room.engine.pendingAttack) {
-            attackPower = room.engine.pendingAttack.damage;
+        if (r.triggeredDamage && table.engine.pendingAttack) {
+            attackPower = table.engine.pendingAttack.damage;
         }
         else if (r.triggeredUltimate) {
             attackPower = before.value;
         }
-        broadcastEvent(io, 'eventPlayCard', {
+        broadcastEvent(io, table, 'eventPlayCard', {
             actorPid: pid,
             card: { id: before.id, name: before.name, category: before.category, value: before.value, cost: before.cost },
             result: {
@@ -386,202 +584,249 @@ io.on('connection', (socket) => {
             attackPower,
         });
         if (r.triggeredDamage) {
-            broadcastEvent(io, 'eventDamage', { message: r.message });
+            broadcastEvent(io, table, 'eventDamage', { message: r.message });
         }
-        if (room.engine.state.gameOver) {
-            broadcastEvent(io, 'eventGameOver', {
-                winner: room.engine.state.result?.winner ?? null,
-                reason: room.engine.state.result?.reason ?? null,
-                detail: room.engine.state.result?.detail ?? null,
+        if (table.engine.state.gameOver) {
+            broadcastEvent(io, table, 'eventGameOver', {
+                winner: table.engine.state.result?.winner ?? null,
+                reason: table.engine.state.result?.reason ?? null,
+                detail: table.engine.state.result?.detail ?? null,
             });
+            broadcastSettlement(io, table);
         }
         cb(true, r);
         // 自动防御结算：
         // 1. 防具累计 >= 攻击伤害 → 自动通过
         // 2. 防御方手中没有防具牌也没有八卦阵 → 自动承受
-        if (room.engine.turn.isAwaitingDefense()
-            && !room.engine.baguaTriggered
-            && room.engine.pendingAttack) {
-            const atk = room.engine.pendingAttack;
-            const defender = room.engine.state.players[atk.defender];
+        if (table.engine.turn.isAwaitingDefense()
+            && !table.engine.baguaTriggered
+            && table.engine.pendingAttack) {
+            const atk = table.engine.pendingAttack;
+            const defender = table.engine.state.players[atk.defender];
             const hasArmor = defender.hand.some((c) => c.def.category === types_1.CardCategory.Armor);
             const hasBagua = defender.hand.some((c) => c.def.category === types_1.CardCategory.Formation && c.def.subtype === types_1.FormationType.BaGua);
-            const shouldAuto = room.engine.defensePool >= atk.damage || (!hasArmor && !hasBagua);
+            const shouldAuto = table.engine.defensePool >= atk.damage || (!hasArmor && !hasBagua);
             if (shouldAuto) {
-                const dr = room.engine.defenderPass();
+                const dr = table.engine.defenderPass();
                 if (dr.ok) {
-                    broadcastEvent(io, 'eventDamage', { message: dr.message });
-                    if (room.engine.state.gameOver) {
-                        broadcastEvent(io, 'eventGameOver', {
-                            winner: room.engine.state.result?.winner ?? null,
-                            reason: room.engine.state.result?.reason ?? null,
-                            detail: room.engine.state.result?.detail ?? null,
+                    broadcastEvent(io, table, 'eventDamage', { message: dr.message });
+                    if (table.engine.state.gameOver) {
+                        broadcastEvent(io, table, 'eventGameOver', {
+                            winner: table.engine.state.result?.winner ?? null,
+                            reason: table.engine.state.result?.reason ?? null,
+                            detail: table.engine.state.result?.detail ?? null,
                         });
+                        broadcastSettlement(io, table);
                     }
                 }
             }
         }
         // 行动阶段：无牌可出时自动结束行动
-        tryAutoEndAction(io, room);
-        broadcastRoomState(io);
+        tryAutoEndAction(io, table);
+        broadcastRoomState(io, table);
     });
     // ---------- 使用补气按钮 ----------
     // payload: { type: 'normal' | 'big' | 'burst' }
     socket.on('useBonus', (payload, ack) => {
         const cb = typeof ack === 'function' ? ack : () => { };
-        const pid = getPidBySocket(socket.id);
+        const table = getTable(socket);
+        if (!table)
+            return cb(false, { error: '未入桌' });
+        const pid = getPidBySocket(socket);
         if (pid === null)
-            return cb(false, { error: '未加入房间' });
-        if (!room.started)
+            return cb(false, { error: '未入桌' });
+        if (!table.started)
             return cb(false, { error: '对局未开始' });
         let r;
         if (payload.type === 'normal')
-            r = room.engine.useNormalQiButton(pid);
+            r = table.engine.useNormalQiButton(pid);
         else if (payload.type === 'big')
-            r = room.engine.useBigQiButton(pid);
+            r = table.engine.useBigQiButton(pid);
         else if (payload.type === 'burst')
-            r = room.engine.useManualBurst(pid);
+            r = table.engine.useManualBurst(pid);
         else
             return cb(false, { error: '未知 bonus type' });
         if (!r.ok)
             return cb(false, { error: r.message });
-        broadcastEvent(io, 'eventBuffChange', {
+        broadcastEvent(io, table, 'eventBuffChange', {
             actorPid: pid,
             type: payload.type,
             message: r.message,
         });
         cb(true, r);
         // 行动阶段：无牌可出时自动结束行动
-        tryAutoEndAction(io, room);
-        broadcastRoomState(io);
+        tryAutoEndAction(io, table);
+        broadcastRoomState(io, table);
     });
     // ---------- 受击阶段：防御方确认（结束防御 / 放弃防御）----------
     socket.on('confirmDefend', (_payload, ack) => {
         const cb = typeof ack === 'function' ? ack : () => { };
-        const pid = getPidBySocket(socket.id);
+        const table = getTable(socket);
+        if (!table)
+            return cb(false, { error: '未入桌' });
+        const pid = getPidBySocket(socket);
         if (pid === null)
-            return cb(false, { error: '未加入房间' });
-        if (!room.engine.turn.isAwaitingDefense())
+            return cb(false, { error: '未入桌' });
+        if (!table.engine.turn.isAwaitingDefense())
             return cb(false, { error: '非受击防御阶段' });
-        if (room.engine.pendingAttack?.defender !== pid)
+        if (table.engine.pendingAttack?.defender !== pid)
             return cb(false, { error: '你不是当前防御方' });
-        const r = room.engine.defenderPass();
+        const r = table.engine.defenderPass();
         if (!r.ok)
             return cb(false, { error: r.message });
-        broadcastEvent(io, 'eventDamage', { actorPid: pid, message: r.message });
-        if (room.engine.state.gameOver) {
-            broadcastEvent(io, 'eventGameOver', {
-                winner: room.engine.state.result?.winner ?? null,
-                reason: room.engine.state.result?.reason ?? null,
-                detail: room.engine.state.result?.detail ?? null,
+        broadcastEvent(io, table, 'eventDamage', { actorPid: pid, message: r.message });
+        if (table.engine.state.gameOver) {
+            broadcastEvent(io, table, 'eventGameOver', {
+                winner: table.engine.state.result?.winner ?? null,
+                reason: table.engine.state.result?.reason ?? null,
+                detail: table.engine.state.result?.detail ?? null,
             });
+            broadcastSettlement(io, table);
         }
         cb(true, r);
-        broadcastRoomState(io);
+        broadcastRoomState(io, table);
     });
     // ---------- 紧急救血阶段：接受败北（不补血）----------
     socket.on('giveUpEmergencyHeal', (_payload, ack) => {
         const cb = typeof ack === 'function' ? ack : () => { };
-        const pid = getPidBySocket(socket.id);
+        const table = getTable(socket);
+        if (!table)
+            return cb(false, { error: '未入桌' });
+        const pid = getPidBySocket(socket);
         if (pid === null)
-            return cb(false, { error: '未加入房间' });
-        if (room.engine.emergencyHealPending !== pid)
+            return cb(false, { error: '未入桌' });
+        if (table.engine.emergencyHealPending !== pid)
             return cb(false, { error: '非紧急救血阶段' });
-        const r = room.engine.emergencyHealGiveUp();
+        const r = table.engine.emergencyHealGiveUp();
         if (!r.ok)
             return cb(false, { error: r.message });
-        broadcastEvent(io, 'eventGameOver', {
-            winner: room.engine.state.result?.winner ?? null,
-            reason: room.engine.state.result?.reason ?? null,
-            detail: room.engine.state.result?.detail ?? null,
+        broadcastEvent(io, table, 'eventGameOver', {
+            winner: table.engine.state.result?.winner ?? null,
+            reason: table.engine.state.result?.reason ?? null,
+            detail: table.engine.state.result?.detail ?? null,
         });
+        broadcastSettlement(io, table);
         cb(true, r);
-        broadcastRoomState(io);
+        broadcastRoomState(io, table);
     });
     // ---------- 当前行动玩家：结束行动（操作权交给对方或触发回合终局）----------
     socket.on('readyNextTurn', (_payload, ack) => {
         const cb = typeof ack === 'function' ? ack : () => { };
-        const pid = getPidBySocket(socket.id);
+        const table = getTable(socket);
+        if (!table)
+            return cb(false, { error: '未入桌' });
+        const pid = getPidBySocket(socket);
         if (pid === null)
-            return cb(false, { error: '未加入房间' });
-        if (!room.engine.turn.isInActionPhase())
+            return cb(false, { error: '未入桌' });
+        if (!table.engine.turn.isInActionPhase())
             return cb(false, { error: '当前不在行动阶段' });
-        if (room.engine.turn.activePlayer !== pid)
+        if (table.engine.turn.activePlayer !== pid)
             return cb(false, { error: '不是你的行动阶段' });
-        if (room.engine.turn.isAwaitingDefense())
+        if (table.engine.turn.isAwaitingDefense())
             return cb(false, { error: '请先完成防御响应' });
-        if (room.engine.emergencyHealPending !== null)
+        if (table.engine.emergencyHealPending !== null)
             return cb(false, { error: '等待紧急救血处理' });
-        const roundBefore = room.engine.state.roundCount;
-        const r = room.engine.endActionPhase();
+        const roundBefore = table.engine.state.roundCount;
+        const r = table.engine.endActionPhase();
         if (!r.ok)
             return cb(false, { error: r.message });
         // roundCount 变化意味着回合真的结束了（endTurn 被触发）
-        if (room.engine.state.roundCount !== roundBefore) {
-            broadcastEvent(io, 'eventTurnEnd', {
-                nextRoundCount: room.engine.state.roundCount,
-                nextFirstPid: room.engine.state.firstPlayer,
+        if (table.engine.state.roundCount !== roundBefore) {
+            broadcastEvent(io, table, 'eventTurnEnd', {
+                nextRoundCount: table.engine.state.roundCount,
+                nextFirstPid: table.engine.state.firstPlayer,
             });
         }
-        if (room.engine.state.gameOver) {
-            broadcastEvent(io, 'eventGameOver', {
-                winner: room.engine.state.result?.winner ?? null,
-                reason: room.engine.state.result?.reason ?? null,
-                detail: room.engine.state.result?.detail ?? null,
+        if (table.engine.state.gameOver) {
+            broadcastEvent(io, table, 'eventGameOver', {
+                winner: table.engine.state.result?.winner ?? null,
+                reason: table.engine.state.result?.reason ?? null,
+                detail: table.engine.state.result?.detail ?? null,
             });
+            broadcastSettlement(io, table);
         }
         cb(true, r);
-        broadcastRoomState(io);
+        broadcastRoomState(io, table);
     });
     // ---------- 重置下一局（任意一方可触发，双方都保留在线直接重开）----------
     socket.on('resetRoom', (_payload, ack) => {
         const cb = typeof ack === 'function' ? ack : () => { };
+        const table = getTable(socket);
+        if (!table)
+            return cb(false, { error: '未入桌' });
         // 重置引擎，保留双方 socketId 不变
-        room.engine = new GameEngine_1.GameEngine();
-        room.engine.initGame();
-        room.started = true;
-        console.log(`[Game] 房间重置 · 新对局开始 · 先手=玩家${room.engine.state.firstPlayer + 1}`);
-        broadcastEvent(io, 'eventRoomReset', {});
-        broadcastEvent(io, 'eventGameStart', {
-            firstPlayerPid: room.engine.state.firstPlayer,
+        table.engine = new GameEngine_1.GameEngine();
+        table.engine.initGame();
+        table.started = true;
+        table.players.p1.ready = false;
+        table.players.p2.ready = false;
+        console.log(`[Game] 桌${table.id} 重置 · 新对局开始 · 先手=玩家${table.engine.state.firstPlayer + 1}`);
+        broadcastEvent(io, table, 'eventRoomReset', {});
+        broadcastEvent(io, table, 'eventGameStart', {
+            firstPlayerPid: table.engine.state.firstPlayer,
         });
         cb(true, { message: '新对局已开始' });
-        broadcastRoomState(io);
+        broadcastRoomState(io, table);
+        broadcastTableUpdate(io, table);
+    });
+    // ---------- 查询战绩 ----------
+    // payload.pid: 指定玩家 pid（用于查看对手战绩）；不传则查自己
+    socket.on('getRecord', (payload = {}, ack) => {
+        const cb = typeof ack === 'function' ? ack : () => { };
+        const auth = socket.data.auth;
+        const myUid = auth?.uid ?? null;
+        let targetUid = myUid;
+        if (payload?.pid !== undefined && payload.pid !== null) {
+            // 按 pid 找当前桌内对应玩家的 userId（联机对手战绩）
+            const table = getTable(socket);
+            if (table) {
+                const slot = ['p1', 'p2'].find(s => table.players[s].pid === payload.pid);
+                if (slot)
+                    targetUid = table.players[slot].userId;
+            }
+        }
+        if (!targetUid || targetUid.startsWith('g')) {
+            return cb(true, null); // 游客/AI 无战绩
+        }
+        const summary = (0, recordService_1.getRecordSummary)(targetUid);
+        cb(true, summary);
+    });
+    // ---------- 单机模式提交结算 ----------
+    socket.on('submitSettlement', (payload, ack) => {
+        const cb = typeof ack === 'function' ? ack : () => { };
+        const auth = socket.data.auth;
+        const uid = auth?.uid ?? null;
+        if (!uid || uid.startsWith('g')) {
+            return cb(true, { skipped: true }); // 游客不计战绩
+        }
+        (0, recordService_1.settleGame)(uid, payload.settlement, payload.myPid);
+        cb(true, { ok: true });
     });
     // ---------- 断开连接 ----------
     socket.on('disconnect', () => {
         console.log(`[IO] 断开：${socket.id}`);
-        let affected = null;
-        for (const s of ['p1', 'p2']) {
-            if (room.players[s].socketId === socket.id) {
-                room.players[s].socketId = null;
-                affected = s;
-            }
+        const table = getTableBySocketId(socket.id);
+        if (!table)
+            return;
+        const slot = getSlotInTable(socket.id, table);
+        if (!slot)
+            return;
+        // 对局进行中：仅清 socketId，保留 userId/姓名供重连；否则完全清空
+        clearSeat(table, slot, table.started);
+        socket.data.tableId = null;
+        socket.data.slot = null;
+        socket.leave(tableRoom(table.id));
+        console.log(`[IO] 桌${table.id} ${slot} 已离线${table.started ? '（保留重连）' : ''}`);
+        broadcastEvent(io, table, 'eventPlayerLeave', { slot });
+        // 两座都空 → 重置整桌
+        if (!table.players.p1.socketId && !table.players.p2.socketId) {
+            resetTable(table);
+            console.log(`[IO] 桌${table.id} 全部离线 · 已重置`);
         }
-        if (affected) {
-            console.log(`[IO] ${affected} 槽已清空`);
-            broadcastEvent(io, 'eventPlayerLeave', { slot: affected });
-            // 如果所有玩家都离开了，重置房间状态
-            // 否则下次加入时 started=true 但不 emit eventGameStart，导致前端卡住
-            if (!room.players.p1.socketId && !room.players.p2.socketId) {
-                room.started = false;
-                room.engine = new GameEngine_1.GameEngine();
-                room.engine.initGame();
-                room.players.p1.userId = null;
-                room.players.p2.userId = null;
-                console.log('[IO] 所有玩家离线 · 房间已重置');
-            }
-            broadcastRoomState(io);
-        }
+        broadcastTableUpdate(io, table);
+        broadcastTableList(io);
     });
 });
-function getPidBySocket(socketId) {
-    if (room.players.p1.socketId === socketId)
-        return 0;
-    if (room.players.p2.socketId === socketId)
-        return 1;
-    return null;
-}
 // ============================================================
 // 启动
 // ============================================================
@@ -597,6 +842,11 @@ async function main() {
     }
     const ip = getLanIp();
     const lanUrl = `http://${ip}:${PORT}`;
+    // 流量监控: 注入实时采样(在线连接数、对局中桌数)
+    (0, monitor_1.startMonitor)(() => ({
+        online: io.engine.clientsCount,
+        activeTables: tables.filter(t => t.started).length,
+    }));
     server.listen(PORT, BIND_HOST, async () => {
         console.log('');
         console.log('╔══════════════════════════════════════════════════╗');
@@ -604,6 +854,7 @@ async function main() {
         console.log('╠══════════════════════════════════════════════════╣');
         console.log(`║  服务监听：       ${BIND_HOST}:${PORT}                        ║`);
         console.log(`║  本机访问：       ${lanUrl.padEnd(37)}║`);
+        console.log(`║  大厅桌数：       ${TABLE_COUNT} 桌并行（每桌 2 座）            ║`);
         console.log('║  公网部署：访问服务分配的域名（如 xxx.zeabur.app）║');
         console.log('║  局域网部署：访问本机 IP + 端口                  ║');
         console.log('╠══════════════════════════════════════════════════╣');
@@ -628,4 +879,12 @@ process.on('unhandledRejection', (reason) => {
     console.error('=== unhandledRejection ===', reason);
     process.exit(1);
 });
+// 优雅退出: 收到 SIGTERM/SIGINT(Zeabur 重新部署/停止时发送 SIGTERM)先落盘监控数据
+function shutdown(signal) {
+    console.log(`[SERVER] 收到 ${signal},正在保存监控数据并退出...`);
+    (0, monitor_1.stopMonitor)();
+    process.exit(0);
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 //# sourceMappingURL=server.js.map

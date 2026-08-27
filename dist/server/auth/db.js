@@ -35,13 +35,18 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getDb = getDb;
 exports.findUserByPhone = findUserByPhone;
+exports.findUserByUsername = findUserByUsername;
+exports.findUserByAccount = findUserByAccount;
 exports.findUserById = findUserById;
 exports.createUser = createUser;
+exports.updateUserNickname = updateUserNickname;
 exports.updateUserPassword = updateUserPassword;
 exports.touchGuest = touchGuest;
 exports.insertSmsCode = insertSmsCode;
 exports.findLatestSmsCode = findLatestSmsCode;
 exports.markSmsCodeConsumed = markSmsCodeConsumed;
+exports.getRecord = getRecord;
+exports.updateRecord = updateRecord;
 /**
  * 用户管理 · JSON 文件数据访问层（纯 JS，无原生模块依赖）
  * 单文件 data/users.json，首次启动自动创建
@@ -57,7 +62,7 @@ function loadData() {
     if (!fs.existsSync(DB_DIR))
         fs.mkdirSync(DB_DIR, { recursive: true });
     if (!fs.existsSync(DB_PATH)) {
-        const fresh = { users: [], sms_codes: [], guests: [], nextId: { users: 1, sms_codes: 1 } };
+        const fresh = { users: [], sms_codes: [], guests: [], records: {}, nextId: { users: 1, sms_codes: 1 } };
         _data = fresh;
         saveData();
         return _data;
@@ -74,9 +79,18 @@ function loadData() {
             parsed.guests = [];
         if (!parsed.nextId)
             parsed.nextId = { users: 1, sms_codes: 1 };
+        if (!parsed.records)
+            parsed.records = {};
+        // 兼容旧数据：为缺少 nickname/username 的用户补默认值
+        for (const u of parsed.users) {
+            if (!u.nickname)
+                u.nickname = `玩家${u.id}`;
+            if (u.username === undefined)
+                u.username = '';
+        }
     }
     catch {
-        parsed = { users: [], sms_codes: [], guests: [], nextId: { users: 1, sms_codes: 1 } };
+        parsed = { users: [], sms_codes: [], guests: [], records: {}, nextId: { users: 1, sms_codes: 1 } };
     }
     _data = parsed;
     return _data;
@@ -95,22 +109,40 @@ function getDb() {
 function findUserByPhone(phone) {
     return loadData().users.find(u => u.phone === phone);
 }
+function findUserByUsername(username) {
+    return loadData().users.find(u => u.username === username);
+}
+/** 按账号查找(手机号或用户名,用于登录) */
+function findUserByAccount(account) {
+    return loadData().users.find(u => u.phone === account || u.username === account);
+}
 function findUserById(id) {
     return loadData().users.find(u => u.id === id);
 }
-function createUser(phone, passwordHash) {
+function createUser(phone, passwordHash, nickname, username = '') {
     const data = loadData();
     const now = new Date().toISOString();
     const row = {
         id: data.nextId.users++,
         phone,
+        username,
         password_hash: passwordHash,
+        nickname: nickname || `玩家${data.nextId.users}`,
         created_at: now,
         updated_at: now,
     };
     data.users.push(row);
     saveData();
     return row;
+}
+function updateUserNickname(id, nickname) {
+    const data = loadData();
+    const user = data.users.find(u => u.id === id);
+    if (user) {
+        user.nickname = nickname;
+        user.updated_at = new Date().toISOString();
+        saveData();
+    }
 }
 function updateUserPassword(phone, passwordHash) {
     const data = loadData();
@@ -163,5 +195,26 @@ function markSmsCodeConsumed(id) {
         row.consumed = true;
         saveData();
     }
+}
+function emptyRecord(uid) {
+    return {
+        uid, totalGames: 0, wins: 0, losses: 0, draws: 0,
+        totalScore: 0, firstBloods: 0, successfulAttacks: 0, ultimateKills: 0,
+    };
+}
+function getRecord(uid) {
+    const data = loadData();
+    if (!data.records[uid]) {
+        data.records[uid] = emptyRecord(uid);
+        saveData();
+    }
+    return data.records[uid];
+}
+function updateRecord(uid, patch) {
+    const data = loadData();
+    if (!data.records[uid])
+        data.records[uid] = emptyRecord(uid);
+    Object.assign(data.records[uid], patch);
+    saveData();
 }
 //# sourceMappingURL=db.js.map

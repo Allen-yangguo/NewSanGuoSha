@@ -188,7 +188,7 @@ npm run build          # 产物输出到 client/dist，由 server.ts 静态托�
 2. [zeabur.com](https://zeabur.com) 新建服务 → 选 GitHub 仓库
 3. Build Command：`npm install && cd client && npm install && npm run build`
 4. Start Command：`npm run start:server`
-5. 环境变量：`PORT=10000`
+5. 环境变量：`PORT=10000`（可选：`MONITOR_TOKEN=你的监控密码`，见「十二、流量监控模块」）
 
 ### Render / Railway / Fly.io
 配置同上，但国内访问可能需要代理。
@@ -228,3 +228,43 @@ npm run build:web           # esbuild 打包到 web-test/bundle.js
 - **音效**：Web Audio API（13 种音效，自动播放策略处理）
 - **动画**：纯 SVG + CSS（旗帜飘扬、武将跪地、绝杀闪光）
 - **二维码**：qrcode（控制台 + 数据 URL 双模式）
+
+## 十二、流量监控模块
+
+服务端内置轻量流量监控，无需额外依赖：
+
+### 监控内容
+- **HTTP 请求统计**：每个路由 / 状态码的请求数、QPS、响应/请求字节数
+- **活跃玩家与对局**：当前在线连接数（Socket.IO）、5 桌中对局中桌数
+
+### 数据存储
+- 内存保留最近 **24 小时**（分钟级粒度）
+- 每小时自动落盘到 `data/monitor/monitor-YYYY-MM-DD.json`（纯 JSON，与用户数据同一目录）
+- 服务重启自动加载历史文件，超过 24 小时的数据按小时粒度聚合可查
+- 收到 `SIGTERM/SIGINT`（如 Zeabur 重新部署）时先落盘再退出
+
+### 接口（需鉴权）
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/monitor/summary` | 实时快照：在线、对局、今日请求、QPS、流量、内存、运行时长 |
+| `GET /api/monitor/series?minutes=120` | 时间序列（`minutes` 最大 10080，超过 24h 自动聚合为小时）+ Top 路由/状态码 |
+| `GET /api/monitor/status` | 轻量健康检查 |
+
+鉴权方式：`Authorization: Bearer <token>` 或查询参数 `?token=<token>`。
+
+### Web 面板
+访问 `https://你的域名/monitor` 查看可视化面板（请求曲线、在线/对局曲线、流量、路由与状态码分布），页面每 5 秒自动刷新，支持 1 小时 / 6 小时 / 24 小时 / 7 天时间范围。
+
+### 部署配置（重要）
+在 Zeabur 环境变量中添加：
+```
+MONITOR_TOKEN=你的监控密码
+```
+- 已配置 → 面板与接口均需该 token 才能访问
+- **未配置** → 生产环境（`NODE_ENV=production`）下监控接口直接返回 403 禁用，防止流量数据公开展示；开发环境（本地 `npm run start:server`）未配置时放行，便于调试
+
+### 本地验证
+```bash
+PORT=10000 NODE_ENV=development MONITOR_TOKEN=test123 npm run start:server
+# 浏览器打开 http://localhost:10000/monitor ，输入 test123 查看面板
+```
