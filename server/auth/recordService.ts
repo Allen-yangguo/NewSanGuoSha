@@ -3,7 +3,7 @@
  * 级别阈值来自可配置等级(server/auth/levels.ts),管理后台可动态调整
  */
 import { GameSettlement, PlayerId } from '../../assets/scripts/core/types';
-import { getRecord, updateRecord, RecordRow } from './db';
+import { getRecord, updateRecord, RecordRow, localDateStr } from './db';
 import { getLevel, getLevels } from './levels';
 
 /** 根据累计分获取用户战绩摘要（含级别） */
@@ -30,8 +30,7 @@ export function settleGame(uid: string | null, settlement: GameSettlement, myPid
   const isWin = settlement.winner === myPid;
   const isDraw = settlement.winner === null;
   const isLoss = !isWin && !isDraw;
-  const d = new Date();
-  const todayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const todayKey = localDateStr(); // 北京时间(固定 UTC+8)
 
   const patch: Partial<RecordRow> = {
     totalGames: rec.totalGames + 1,

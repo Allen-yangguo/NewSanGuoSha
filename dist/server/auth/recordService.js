@@ -28,8 +28,7 @@ function settleGame(uid, settlement, myPid) {
     const isWin = settlement.winner === myPid;
     const isDraw = settlement.winner === null;
     const isLoss = !isWin && !isDraw;
-    const d = new Date();
-    const todayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const todayKey = (0, db_1.localDateStr)(); // 北京时间(固定 UTC+8)
     const patch = {
         totalGames: rec.totalGames + 1,
         wins: rec.wins + (isWin ? 1 : 0),

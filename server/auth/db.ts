@@ -295,11 +295,12 @@ export function updateRecord(uid: string, patch: Partial<RecordRow>): void {
 
 // ===== 排行榜 =====
 
-/** 本地时区日期 YYYY-MM-DD(活跃榜按本地"今天"统计) */
+/** 北京时间日期 YYYY-MM-DD(固定 UTC+8,不随服务器时区变化;活跃榜按北京"今天"统计) */
 export function localDateStr(d: Date = new Date()): string {
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${m}-${day}`;
+  const bj = new Date(d.getTime() + 8 * 3600 * 1000);
+  const m = String(bj.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(bj.getUTCDate()).padStart(2, '0');
+  return `${bj.getUTCFullYear()}-${m}-${day}`;
 }
 
 export interface LeaderboardRow {

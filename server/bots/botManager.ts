@@ -28,11 +28,26 @@ const MAX_BOT_VS_BOT = 4;              // 机器人互相对局上限(留桌给�
 const SOLO_WAIT_CAP = 6;               // 独占空桌等真人的机器人上限(其余参与机器人互对)
 const META_FILE = path.resolve(process.cwd(), 'data', 'bots-meta.json');
 
-/** 当前应保持活跃的机器人数量(黄金时间多,夜间 1-6 点为 0) */
+// ===== 北京时间(固定 UTC+8,不随服务器时区变化)=====
+/** 北京时间 Date 对象 */
+function beijingNow(): Date {
+  return new Date(Date.now() + 8 * 3600 * 1000);
+}
+/** 北京时间小时(0-23) */
+function beijingHour(): number {
+  return beijingNow().getUTCHours();
+}
+/** 北京时间日期 YYYY-MM-DD */
+function beijingDate(): string {
+  const d = beijingNow();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+/** 当前应保持活跃的机器人数量(按北京时间: 黄金时间多,夜间 1-6 点为 0) */
 function currentMaxActive(): number {
-  const h = new Date().getHours();
-  if (h >= NIGHT_START_HOUR && h < NIGHT_END_HOUR) return 0; // 凌晨 1~6 点: 全部休眠
-  if (h >= 18 || h < 1) return PEAK_ACTIVE;                   // 18:00~24:00 黄金时间
+  const h = beijingHour();
+  if (h >= NIGHT_START_HOUR && h < NIGHT_END_HOUR) return 0; // 北京时间凌晨 1~6 点: 全部休眠
+  if (h >= 18 || h < 1) return PEAK_ACTIVE;                   // 北京时间 18:00~24:00 黄金时间
   return OFFPEAK_ACTIVE;                                       // 其余时间少量
 }
 
@@ -193,7 +208,7 @@ function migrateLegacyBots(): void {
 /** 每日新增 2~3 个模拟玩家(日期变更才执行) */
 function dailyAddBots(): void {
   const meta = readMeta();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = beijingDate();
   if (meta.lastDaily === today) return;
   const count = DAILY_ADD[0] + Math.floor(Math.random() * (DAILY_ADD[1] - DAILY_ADD[0] + 1));
   const used = new Set(listBots().map(b => b.nickname));
@@ -534,7 +549,7 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
     if (bot.gameOverHandled) return;
     bot.gameOverHandled = true;
     // 每日对局计数(跨日重置)
-    const today = new Date().toISOString().slice(0, 10);
+    const today = beijingDate();
     if (bot.dayKey !== today) {
       bot.dayKey = today;
       bot.gamesToday = 0;
@@ -618,7 +633,7 @@ function sleepBot(bot: BotInstance): boolean {
 
 /** 轮换: 按当前时段目标活跃数(黄金多/夜间0)调整,并遵守每日对局上限 */
 async function rotateActive(serverUrl: string): Promise<void> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = beijingDate();
   const target = currentMaxActive();
   const activeNow = () => bots.filter(b => b.state !== 'sleep').length;
   // 超限 → 休眠空闲的(idle/sitting 且非对局)
@@ -712,13 +727,13 @@ export function initBotSystem(serverUrl: string): void {
       thinkTimer: null,
       gameOverHandled: false,
       gamesToday: 0,
-      dayKey: new Date().toISOString().slice(0, 10),
+      dayKey: beijingDate(),
       lastTableId: null,
     });
   }
   console.log(`[BOT] 模拟玩家系统启动 · 共 ${bots.length} 个(当前时段目标活跃 ${currentMaxActive()})`);
   // 唤醒第一批(遵守当前时段上限与每日对局上限)
-  const today = new Date().toISOString().slice(0, 10);
+  const today = beijingDate();
   for (const b of bots) {
     if (bots.filter(x => x.state !== 'sleep').length >= currentMaxActive()) break;
     if (b.dayKey === today && b.gamesToday >= DAILY_GAME_CAP) continue;
