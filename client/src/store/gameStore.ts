@@ -194,6 +194,7 @@ export const state = reactive<RoomStateView & LobbyState>({
   defensePid: null,
   isReflect: false,
   emergencyHealPid: null,
+  ultimateSavePid: null,
   firstPlayerPid: 0,
   guiBeiProtectorPid: null,
   guiBeiLayers: 0,
@@ -229,11 +230,13 @@ function emptyPlayer(pid: PlayerId, name: string): any {
 export const isMyTurn = computed(() => state.yourPid !== null && state.activePid === state.yourPid);
 export const isAwaitingDefense = computed(() => state.defensePid !== null && state.defensePid === state.yourPid);
 export const isEmergencyHealing = computed(() => state.emergencyHealPid !== null && state.emergencyHealPid === state.yourPid);
+export const isUltimateSaving = computed(() => state.ultimateSavePid !== null && state.ultimateSavePid === state.yourPid);
 export const canEndTurn = computed(() => {
   if (!state.started || state.gameOver) return false;
   if (!isMyTurn.value) return false;
   if (state.defensePid !== null) return false;
   if (state.emergencyHealPid !== null) return false;
+  if (state.ultimateSavePid !== null) return false;
   if (state.yourPid !== null && state.actionEnded[state.yourPid]) return false;
   return true;
 });
@@ -361,6 +364,13 @@ export function initStore(): void {
   });
   socket.on('eventGameSettlement', (d) => {
     settlement.value = d;
+  });
+  socket.on('eventUltimateSave', (d) => {
+    if (d.actorPid === state.yourPid) {
+      pushToast(d.saved ? '🛡 绝疗丹保命！' : '💀 还魂丹无效 · 死亡');
+    } else {
+      pushToast(d.saved ? '🛡 对方绝疗丹保命' : '💀 对方还魂丹无效 · 死亡');
+    }
   });
   socket.on('eventTurnEnd', () => {
     pushToast('📜 回合结束 · 进入下一轮');
@@ -573,6 +583,30 @@ export async function giveUpHeal(): Promise<{ ok: boolean; msg: string }> {
     return { ok: r.ok, msg: r.message };
   }
   const { ok, data } = await emit('giveUpEmergencyHeal', {});
+  if (!ok) pushToast('❌ ' + (data?.error || '操作失败'));
+  return { ok, msg: data?.message || data?.error || '' };
+}
+
+/** 绝杀急救：使用急锦囊自救（50% 绝疗丹保命 / 还魂丹死亡） */
+export async function useUltimatePouch(): Promise<{ ok: boolean; msg: string; saved?: boolean }> {
+  if (gameMode.value === 'single' && localEngine) {
+    const r = localEngine.useUltimatePouch();
+    if (!r.ok) pushToast('❌ ' + r.message);
+    return { ok: r.ok, msg: r.message, saved: (r as any).saved };
+  }
+  const { ok, data } = await emit('useUltimatePouch', {});
+  if (!ok) pushToast('❌ ' + (data?.error || '操作失败'));
+  return { ok, msg: data?.message || data?.error || '', saved: data?.saved };
+}
+
+/** 绝杀急救：放弃自救，接受败北 */
+export async function giveUpUltimateSave(): Promise<{ ok: boolean; msg: string }> {
+  if (gameMode.value === 'single' && localEngine) {
+    const r = localEngine.giveUpUltimateSave();
+    if (!r.ok) pushToast('❌ ' + r.message);
+    return { ok: r.ok, msg: r.message };
+  }
+  const { ok, data } = await emit('giveUpUltimateSave', {});
   if (!ok) pushToast('❌ ' + (data?.error || '操作失败'));
   return { ok, msg: data?.message || data?.error || '' };
 }

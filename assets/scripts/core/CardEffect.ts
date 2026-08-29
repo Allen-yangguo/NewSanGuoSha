@@ -27,6 +27,8 @@ export interface EffectResult {
   triggeredCharm?: boolean;
   /** 是否使用了锦囊 */
   pouchUsed?: boolean;
+  /** 绝杀急救抽卡结果：true=绝疗丹保命，false=还魂丹死亡（仅 useUltimatePouch 返回） */
+  saved?: boolean;
   /** 锦囊产出的实体手牌 */
   card?: CardInstance;
 }

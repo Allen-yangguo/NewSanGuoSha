@@ -238,6 +238,30 @@ export class LocalEngine {
     return result;
   }
 
+  useUltimatePouch(): { ok: boolean; message: string; saved?: boolean } {
+    const result = this.engine.useUltimatePouch(HUMAN_PID) as any;
+    if (result.ok) {
+      this.pushState();
+      if (this.engine.state.gameOver) {
+        this.fireGameOver();
+        return result;
+      }
+      this.maybeScheduleAI();
+    }
+    return result;
+  }
+
+  giveUpUltimateSave(): { ok: boolean; message: string } {
+    const result = this.engine.giveUpUltimateSave(HUMAN_PID);
+    if (result.ok) {
+      this.pushState();
+      if (this.engine.state.gameOver) {
+        this.fireGameOver();
+      }
+    }
+    return result;
+  }
+
   endAction(): { ok: boolean; message: string } {
     const result = this.engine.endActionPhase();
     if (result.ok) {
@@ -274,10 +298,12 @@ export class LocalEngine {
     // 1. 行动阶段轮到 AI
     // 2. 防御阶段 AI 是防御方
     // 3. 紧急救血阶段 AI 需要补血
+    // 4. 绝杀急救阶段 AI 需要选择是否使用急锦囊
     const needAct =
       (this.engine.turn.isInActionPhase() && this.engine.turn.activePlayer === AI_PID && !this.engine.state.actionEnded[AI_PID]) ||
       (this.engine.turn.isAwaitingDefense() && this.engine.pendingAttack?.defender === AI_PID) ||
-      (this.engine.emergencyHealPending === AI_PID);
+      (this.engine.emergencyHealPending === AI_PID) ||
+      (this.engine.ultimateSavePending === AI_PID);
 
     if (needAct) {
       // AI 响应提速：短延迟避免"看起来卡死"（原 1.5~2.5s）
@@ -287,6 +313,15 @@ export class LocalEngine {
 
   private aiAct(): void {
     if (this.engine.state.gameOver) return;
+
+    // 绝杀急救：AI 被绝杀击至 0 血,自动选择使用急锦囊(50% 绝疗丹)
+    if (this.engine.ultimateSavePending === AI_PID) {
+      this.engine.useUltimatePouch(AI_PID);
+      this.pushState();
+      if (this.engine.state.gameOver) { this.fireGameOver(); return; }
+      this.maybeScheduleAI();
+      return;
+    }
 
     // 紧急救血
     if (this.engine.emergencyHealPending === AI_PID) {
@@ -634,6 +669,7 @@ export class LocalEngine {
       defensePid: this.engine.turn.isAwaitingDefense() ? this.engine.pendingAttack?.defender ?? null : null,
       isReflect: this.engine.turn.isAwaitingDefense() && this.engine.pendingAttack?.isReflect === true,
       emergencyHealPid: this.engine.emergencyHealPending,
+      ultimateSavePid: this.engine.ultimateSavePending,
       firstPlayerPid: s.firstPlayer,
       guiBeiProtectorPid: this.engine.guiBeiProtector,
       guiBeiLayers: this.engine.guiBeiLayers,

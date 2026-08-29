@@ -366,6 +366,21 @@
       </div>
     </div>
 
+    <!-- 绝杀急救弹窗：被绝杀击杀,可选择是否使用急锦囊自救 -->
+    <div v-if="isUltimateSaving && !state.gameOver" class="modal-overlay">
+      <div class="confirm-box" style="border-color:#B5463A;box-shadow:0 0 24px rgba(181,70,58,.5);">
+        <div class="confirm-title" style="color:#B5463A;">⚔ 你被绝杀击杀！</div>
+        <div class="confirm-sub">
+          你有急锦囊可用：使用后 <b>50% 抽到绝疗丹保留 1 血</b>，50% 抽到还魂丹直接死亡。<br/>
+          是否使用急锦囊自救？
+        </div>
+        <div style="display:flex;gap:10px;justify-content:center;margin-top:12px;">
+          <button class="btn dark" @click="onGiveUpUltimateSave">放弃（接受败北）</button>
+          <button class="btn primary" @click="onUseUltimatePouch">使用急锦囊自救</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 退出确认弹窗 -->
     <div v-if="showExitConfirm" class="modal-overlay" @click.self="showExitConfirm = false">
       <div class="confirm-box">
@@ -393,10 +408,11 @@ import DefeatAnim from './components/DefeatAnim.vue';
 import MusicButton from './components/MusicButton.vue';
 import { soundManager } from './audio/SoundManager';
 import {
-  state, toastLogs, pushToast, isMyTurn, isAwaitingDefense, isEmergencyHealing,
+  state, toastLogs, pushToast, isMyTurn, isAwaitingDefense, isEmergencyHealing, isUltimateSaving,
   canEndTurn, canConfirmDefend, canGiveUpHeal, playedCards, gameMode,
   initStore, startSingle, startLan, exitToEntry,
   useBonus, confirmDefend, giveUpHeal, endAction, playCard, resetRoom,
+  useUltimatePouch, giveUpUltimateSave,
   ultimateAnimating, pouchAnimating, strategistAnimating, gameOverAnimating, settlement, recordSummary, fetchRecord, submitSettlement, viewingRecord, fetchRecordByPid,
   spectating, exitSpectate,
 } from './store/gameStore';
@@ -416,6 +432,14 @@ function onSelectMode(mode: 'single' | 'lan'): void {
 // ===== 旁观 =====
 function onExitSpectate(): void {
   exitSpectate();
+}
+
+// ===== 绝杀急救 =====
+function onUseUltimatePouch(): void {
+  useUltimatePouch();
+}
+function onGiveUpUltimateSave(): void {
+  giveUpUltimateSave();
 }
 
 // ===== 分享网址给好友 =====

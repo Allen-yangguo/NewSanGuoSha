@@ -86,6 +86,8 @@ export interface RoomStateView {
   /** 当前防御响应是否为八卦阵反弹受击（true 时仅允许出防具，不可再出八卦阵） */
   isReflect: boolean;
   emergencyHealPid: PlayerId | null;
+  /** 绝杀急救等待中的玩家 pid（null=无），该玩家可选择是否使用急锦囊自救 */
+  ultimateSavePid: PlayerId | null;
   firstPlayerPid: PlayerId;
   /** 龟背阵保护方 pid（null=未激活） */
   guiBeiProtectorPid: PlayerId | null;
@@ -179,6 +181,8 @@ export interface ClientEvents {
   useBonus: (payload: { type: 'normal' | 'big' | 'burst' }, ack?: (ok: boolean, data: any) => void) => void;
   confirmDefend: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   giveUpEmergencyHeal: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
+  useUltimatePouch: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
+  giveUpUltimateSave: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   readyNextTurn: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   resetRoom: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   getRecord: (payload?: {}, ack?: (ok: boolean, data: RecordView | null) => void) => void;
@@ -211,6 +215,7 @@ export interface ServerEvents {
   eventGameOver: (data: { winner: PlayerId | null; reason: string | null; detail: string | null }) => void;
   eventGameSettlement: (data: GameSettlementView) => void;
   eventTurnEnd: (data: { nextRoundCount: number; nextFirstPid: PlayerId }) => void;
+  eventUltimateSave: (data: { actorPid: PlayerId; saved: boolean; message: string }) => void;
   eventPlayerLeave: (data: { slot: Slot }) => void;
   eventRoomReset: () => void;
 }

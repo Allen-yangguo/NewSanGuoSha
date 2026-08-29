@@ -507,6 +507,11 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
       scheduleThink(bot, () => botEmergency(bot, room), thinkDelay('emg'));
       return;
     }
+    if (room.ultimateSavePid === room.yourPid) {
+      // 被绝杀击杀且有急锦囊: 自动使用急锦囊自救(50% 绝疗丹)
+      scheduleThink(bot, () => emitAck(bot.socket!, 'useUltimatePouch', {}), thinkDelay('emg'));
+      return;
+    }
     if (room.defensePid === room.yourPid) {
       scheduleThink(bot, () => botDefend(bot, room), thinkDelay('defend'));
       return;

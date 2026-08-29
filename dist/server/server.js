@@ -218,6 +218,7 @@ function buildRoomState(socketId, table) {
         defensePid,
         isReflect,
         emergencyHealPid: table.engine.emergencyHealPending,
+        ultimateSavePid: table.engine.ultimateSavePending,
         firstPlayerPid: table.engine.state.firstPlayer,
         guiBeiProtectorPid: table.engine.guiBeiProtector,
         guiBeiLayers: table.engine.guiBeiLayers,
@@ -771,6 +772,56 @@ io.on('connection', (socket) => {
         const r = table.engine.emergencyHealGiveUp();
         if (!r.ok)
             return cb(false, { error: r.message });
+        broadcastEvent(io, table, 'eventGameOver', {
+            winner: table.engine.state.result?.winner ?? null,
+            reason: table.engine.state.result?.reason ?? null,
+            detail: table.engine.state.result?.detail ?? null,
+        });
+        broadcastSettlement(io, table);
+        cb(true, r);
+        broadcastRoomState(io, table);
+    });
+    // ---------- 绝杀急救阶段：使用急锦囊自救 ----------
+    socket.on('useUltimatePouch', (_payload, ack) => {
+        const cb = typeof ack === 'function' ? ack : () => { };
+        const table = getTable(socket);
+        if (!table)
+            return cb(false, { error: '未入桌' });
+        const pid = getPidBySocket(socket);
+        if (pid === null)
+            return cb(false, { error: '未入桌' });
+        if (table.engine.ultimateSavePending !== pid)
+            return cb(false, { error: '非绝杀急救阶段' });
+        const r = table.engine.useUltimatePouch(pid);
+        if (!r.ok)
+            return cb(false, { error: r.message });
+        broadcastEvent(io, table, 'eventUltimateSave', { actorPid: pid, saved: !!r.saved, message: r.message });
+        if (table.engine.state.gameOver) {
+            broadcastEvent(io, table, 'eventGameOver', {
+                winner: table.engine.state.result?.winner ?? null,
+                reason: table.engine.state.result?.reason ?? null,
+                detail: table.engine.state.result?.detail ?? null,
+            });
+            broadcastSettlement(io, table);
+        }
+        cb(true, r);
+        broadcastRoomState(io, table);
+    });
+    // ---------- 绝杀急救阶段：放弃自救，接受败北 ----------
+    socket.on('giveUpUltimateSave', (_payload, ack) => {
+        const cb = typeof ack === 'function' ? ack : () => { };
+        const table = getTable(socket);
+        if (!table)
+            return cb(false, { error: '未入桌' });
+        const pid = getPidBySocket(socket);
+        if (pid === null)
+            return cb(false, { error: '未入桌' });
+        if (table.engine.ultimateSavePending !== pid)
+            return cb(false, { error: '非绝杀急救阶段' });
+        const r = table.engine.giveUpUltimateSave(pid);
+        if (!r.ok)
+            return cb(false, { error: r.message });
+        broadcastEvent(io, table, 'eventUltimateSave', { actorPid: pid, saved: false, message: r.message });
         broadcastEvent(io, table, 'eventGameOver', {
             winner: table.engine.state.result?.winner ?? null,
             reason: table.engine.state.result?.reason ?? null,

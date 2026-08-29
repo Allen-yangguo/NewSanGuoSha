@@ -39,6 +39,8 @@ class GameEngine {
         this.guiBeiRemainingTurns = 0;
         /** 紧急救血等待中（普通攻击打至 0 血，可补血续命） */
         this.emergencyHealPending = null;
+        /** 绝杀急救等待中（绝杀打至 0 血，可手动选择使用急锦囊抽绝疗丹自救） */
+        this.ultimateSavePending = null;
         /** 历史日志（用于 UI 显示与调试） */
         this.logs = [];
         /** 单局得分追踪 */
@@ -117,6 +119,10 @@ class GameEngine {
         if (this.emergencyHealPending !== null) {
             // 紧急救血阶段：被击杀方可打补血牌
             return actor === this.emergencyHealPending;
+        }
+        if (this.ultimateSavePending !== null) {
+            // 绝杀急救阶段：被绝杀方选择是否使用急锦囊
+            return actor === this.ultimateSavePending;
         }
         // 行动阶段：仅当前行动玩家且未结束行动方可出牌
         return this.turn.isInActionPhase()
@@ -772,9 +778,14 @@ class GameEngine {
         if (target.hp <= 0) {
             const overkill = amount - before;
             if (opts.source === 'ultimate') {
-                // 绝杀击杀：默认不可急救；唯一应对手段是急锦囊 50% 抽到绝疗丹，或手牌已有绝疗丹
-                if (this.trySaveFromUltimate(targetId)) {
-                    return; // 已保命
+                // 绝杀击杀：手牌绝疗丹自动保命；有急锦囊则进入「绝杀急救等待」由玩家手动选择是否使用
+                if (this.useJueLiaoDanFromHand(targetId)) {
+                    return; // 手牌绝疗丹自动保命
+                }
+                if (this.hasJiPouch(target)) {
+                    this.ultimateSavePending = targetId;
+                    this.log(`玩家${targetId + 1} 被绝杀击至 0 血 · 有急锦囊可自救（等待选择）`);
+                    return;
                 }
                 this.log(`玩家${targetId + 1} 被绝杀击杀 · 不可急救`);
                 this.state.checkGameOver();
@@ -804,42 +815,55 @@ class GameEngine {
         return player.hand.some(c => c.def.category === types_1.CardCategory.FunctionHp && c.def.subtype === types_1.HpTier.HuanHunDan);
     }
     /**
-     * 绝杀致死时的唯一自救：急锦囊 50% 抽到绝疗丹活下来（抽到还魂丹直接死亡）；
-     * 若手牌已有绝疗丹也可直接使用保命。
-     * @returns true = 已保命（hp=1），false = 未能自救（正常判负）
+     * 手牌已有绝疗丹：绝杀击杀时自动使用保 1 血（无需玩家操作）
+     * @returns true = 已保命
      */
-    trySaveFromUltimate(targetId) {
+    useJueLiaoDanFromHand(targetId) {
         const target = this.state.players[targetId];
-        // 手牌已有绝疗丹：直接使用保命
-        if (this.hasJueLiaoDanInHand(target)) {
-            const idx = target.hand.findIndex(c => c.def.category === types_1.CardCategory.FunctionHp && c.def.subtype === types_1.HpTier.JueLiaoDan);
-            if (idx >= 0) {
-                const dan = target.hand.splice(idx, 1)[0];
-                this.state.table.push(dan);
-                target.hp = 1;
-                target.overkill = 0;
-                this.log(`玩家${targetId + 1} 使用手牌【绝疗丹】· 绝杀下保 1 血`);
-                return true;
-            }
+        const idx = target.hand.findIndex(c => c.def.category === types_1.CardCategory.FunctionHp && c.def.subtype === types_1.HpTier.JueLiaoDan);
+        if (idx < 0)
+            return false;
+        const dan = target.hand.splice(idx, 1)[0];
+        this.state.table.push(dan);
+        target.hp = 1;
+        target.overkill = 0;
+        this.log(`玩家${targetId + 1} 使用手牌【绝疗丹】· 绝杀下保 1 血`);
+        return true;
+    }
+    /**
+     * 绝杀急救阶段：玩家选择使用急锦囊
+     * 50% 抽到绝疗丹保 1 血 / 50% 抽到还魂丹直接死亡（消耗急锦囊标记）
+     */
+    useUltimatePouch(pid) {
+        if (this.ultimateSavePending !== pid)
+            return { ok: false, message: '非绝杀急救阶段' };
+        const target = this.state.players[pid];
+        if (!this.hasJiPouch(target))
+            return { ok: false, message: '没有急锦囊' };
+        const jiKey = Object.keys(target.pouches).find(k => target.pouches[k].ji);
+        if (!jiKey)
+            return { ok: false, message: '没有急锦囊' };
+        target.pouches[jiKey].ji = false;
+        this.ultimateSavePending = null;
+        const gotJueLiao = Math.random() < 0.5;
+        if (gotJueLiao) {
+            target.hp = 1;
+            target.overkill = 0;
+            this.log(`玩家${pid + 1} 使用急锦囊 · 抽中【绝疗丹】· 绝杀下保 1 血`);
+            return { ok: true, message: '抽中绝疗丹 · 保 1 血', saved: true };
         }
-        // 急锦囊：50% 抽到绝疗丹
-        if (this.hasJiPouch(target)) {
-            const jiKey = Object.keys(target.pouches).find(k => target.pouches[k].ji);
-            if (jiKey) {
-                target.pouches[jiKey].ji = false;
-                const gotJueLiao = Math.random() < 0.5;
-                if (gotJueLiao) {
-                    target.hp = 1;
-                    target.overkill = 0;
-                    this.log(`玩家${targetId + 1} 触发急锦囊 · 抽中【绝疗丹】· 绝杀下保 1 血`);
-                }
-                else {
-                    this.log(`玩家${targetId + 1} 触发急锦囊 · 抽中【还魂丹】· 绝杀无效 · 死亡`);
-                }
-                return gotJueLiao;
-            }
-        }
-        return false;
+        this.log(`玩家${pid + 1} 使用急锦囊 · 抽中【还魂丹】· 绝杀无效 · 死亡`);
+        this.state.checkGameOver();
+        return { ok: true, message: '抽中还魂丹 · 死亡', saved: false };
+    }
+    /** 绝杀急救阶段：玩家放弃使用急锦囊，直接判负 */
+    giveUpUltimateSave(pid) {
+        if (this.ultimateSavePending !== pid)
+            return { ok: false, message: '非绝杀急救阶段' };
+        this.ultimateSavePending = null;
+        this.log(`玩家${pid + 1} 放弃急锦囊自救 · 接受败北`);
+        this.state.checkGameOver();
+        return { ok: true, message: '游戏结束' };
     }
     /** 计算手牌中所有补血牌的总补血量 */
     totalHealInHand(pid) {
@@ -907,6 +931,8 @@ class GameEngine {
             return { ok: false, message: '请先完成防御响应' };
         if (this.emergencyHealPending !== null)
             return { ok: false, message: '等待紧急救血' };
+        if (this.ultimateSavePending !== null)
+            return { ok: false, message: '等待绝杀急救选择' };
         if (!this.turn.isInActionPhase())
             return { ok: false, message: '非行动阶段' };
         const actor = this.turn.activePlayer;

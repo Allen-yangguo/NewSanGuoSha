@@ -253,39 +253,9 @@ function main(): void {
     assert(e.emergencyHealPending === null, '紧急救血结束');
   }
 
-  console.log('\n=== 绝杀致死：急锦囊 50% 绝疗丹 / 还魂丹 ===');
+  console.log('\n=== 绝杀致死：手牌绝疗丹自动保命 / 急锦囊手动自救 ===');
   {
-    // 抽中绝疗丹 → 存活
-    const e = freshEngine();
-    const fp = 0, enemy = 1;
-    e.state.players[enemy].pouches.zhuge = { que: false, can: false, ji: true };
-    e.state.players[enemy].hp = 1;
-    e.state.players[fp].qi = 10;
-    e.state.players[fp].hand.push(inst('yitianjian', 't_yj2'));
-    const origRandom = Math.random;
-    Math.random = () => 0.1; // < 0.5 → 绝疗丹
-    applyCardEffect(e, inst('yitianjian', 't_yj2'), fp);
-    Math.random = origRandom;
-    assert(e.state.players[enemy].hp === 1, `绝杀触发急锦囊 · 抽中绝疗丹保 1 血（hp ${e.state.players[enemy].hp}）`);
-    assert(!e.state.gameOver, '游戏未结束（保命成功）');
-    assert(!e.state.players[enemy].pouches.zhuge.ji, '急锦囊已消耗');
-  }
-  {
-    // 抽中还魂丹 → 死亡
-    const e = freshEngine();
-    const fp = 0, enemy = 1;
-    e.state.players[enemy].pouches.zhuge = { que: false, can: false, ji: true };
-    e.state.players[enemy].hp = 1;
-    e.state.players[fp].qi = 10;
-    e.state.players[fp].hand.push(inst('yitianjian', 't_yj3'));
-    const origRandom = Math.random;
-    Math.random = () => 0.9; // >= 0.5 → 还魂丹
-    applyCardEffect(e, inst('yitianjian', 't_yj3'), fp);
-    Math.random = origRandom;
-    assert(e.state.gameOver, '抽中还魂丹 · 绝杀无效 · 死亡判负');
-  }
-  {
-    // 手牌已有绝疗丹 → 绝杀保命
+    // 手牌已有绝疗丹 → 绝杀自动保命（无需玩家操作）
     const e = freshEngine();
     const fp = 0, enemy = 1;
     e.state.players[enemy].hand.push(inst('jueliao_dan', 't_jld'));
@@ -293,7 +263,57 @@ function main(): void {
     e.state.players[fp].qi = 10;
     e.state.players[fp].hand.push(inst('yitianjian', 't_yj4'));
     applyCardEffect(e, inst('yitianjian', 't_yj4'), fp);
-    assert(e.state.players[enemy].hp === 1 && !e.state.gameOver, '手牌绝疗丹 · 绝杀保 1 血');
+    assert(e.state.players[enemy].hp === 1 && !e.state.gameOver, '手牌绝疗丹 · 绝杀自动保 1 血');
+  }
+  {
+    // 急锦囊 → 进入绝杀急救等待（不立即判负）
+    const e = freshEngine();
+    const fp = 0, enemy = 1;
+    e.state.players[enemy].pouches.zhuge = { que: false, can: false, ji: true };
+    e.state.players[enemy].hp = 1;
+    e.state.players[fp].qi = 10;
+    e.state.players[fp].hand.push(inst('yitianjian', 't_yj2'));
+    applyCardEffect(e, inst('yitianjian', 't_yj2'), fp);
+    assert(e.state.players[enemy].hp === 0, '绝杀击至 0 血');
+    assert(e.ultimateSavePending === enemy, '进入绝杀急救等待（ultimateSavePending）');
+    assert(!e.state.gameOver, '未立即判负（等待玩家选择）');
+
+    // 使用急锦囊 → 抽中绝疗丹 → 保命
+    const origRandom = Math.random;
+    Math.random = () => 0.1; // < 0.5 → 绝疗丹
+    const r = e.useUltimatePouch(enemy);
+    Math.random = origRandom;
+    assert(r.ok && (r as any).saved === true, `使用急锦囊 · 抽中绝疗丹保 1 血（saved=${(r as any).saved}）`);
+    assert(e.state.players[enemy].hp === 1 && !e.state.gameOver, '保 1 血');
+    assert(!e.state.players[enemy].pouches.zhuge.ji, '急锦囊已消耗');
+  }
+  {
+    // 使用急锦囊 → 抽中还魂丹 → 死亡
+    const e = freshEngine();
+    const fp = 0, enemy = 1;
+    e.state.players[enemy].pouches.zhuge = { que: false, can: false, ji: true };
+    e.state.players[enemy].hp = 1;
+    e.state.players[fp].qi = 10;
+    e.state.players[fp].hand.push(inst('yitianjian', 't_yj3'));
+    applyCardEffect(e, inst('yitianjian', 't_yj3'), fp);
+    const origRandom = Math.random;
+    Math.random = () => 0.9; // >= 0.5 → 还魂丹
+    const r = e.useUltimatePouch(enemy);
+    Math.random = origRandom;
+    assert(r.ok && (r as any).saved === false, '使用急锦囊 · 抽中还魂丹');
+    assert(e.state.gameOver, '还魂丹 · 绝杀无效 · 死亡判负');
+  }
+  {
+    // 放弃自救 → 直接判负
+    const e = freshEngine();
+    const fp = 0, enemy = 1;
+    e.state.players[enemy].pouches.zhuge = { que: false, can: false, ji: true };
+    e.state.players[enemy].hp = 1;
+    e.state.players[fp].qi = 10;
+    e.state.players[fp].hand.push(inst('yitianjian', 't_yj5'));
+    applyCardEffect(e, inst('yitianjian', 't_yj5'), fp);
+    const r = e.giveUpUltimateSave(enemy);
+    assert(r.ok && e.state.gameOver, '放弃急锦囊自救 · 直接判负');
   }
 
   console.log('\n=== 回合结束清桌 ===');
