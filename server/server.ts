@@ -39,7 +39,7 @@ import {
 import { HP_MAX } from '../assets/scripts/core/BattleState';
 import { createAuthRouter } from './auth/routes';
 import { verifyToken, getUserByUid } from './auth/authService';
-import { getDb } from './auth/db';
+import { getDb, getLeaderboard } from './auth/db';
 import { getRecordSummary, settleGame } from './auth/recordService';
 import {
   createMonitorRouter,
@@ -476,6 +476,12 @@ app.use('/api/auth', createAuthRouter());
 app.use('/api/monitor', createMonitorRouter());
 // 管理后台 REST 接口(ADMIN_TOKEN 保护)
 app.use('/api/admin', createAdminRouter());
+
+// 排行榜(公开数据,无需鉴权): ?type=score 积分榜 / ?type=active 今日活跃榜,各取前十
+app.get('/api/leaderboard', (_req: express.Request, res: express.Response) => {
+  const type = _req.query.type === 'active' ? 'active' : 'score';
+  res.json({ ok: true, data: getLeaderboard(type, 10) });
+});
 
 // 静态托管：基于 process.cwd() 解析 client/dist，兼容 ts-node 和编译后运行
 // ts-node 运行 server/server.ts 时 cwd 是项目根

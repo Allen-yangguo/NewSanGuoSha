@@ -540,10 +540,14 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
       bot.gamesToday = 0;
     }
     bot.gamesToday += 1;
-    // 当日对局达到上限 → 不再激活,直接休眠
+    // 当日对局达到上限 → 先离桌,再休眠(对局刚结束时 state 仍是 playing,sleepBot 拒绝 playing,必须先 standUp)
     if (bot.gamesToday >= DAILY_GAME_CAP) {
       console.log(`[BOT] ${bot.nickname} 今日对局已达 ${DAILY_GAME_CAP} 局上限,今日不再激活`);
-      sleepBot(bot);
+      bot.gameOverHandled = false;
+      emitAck(socket, 'standUp', {}).then(() => {
+        bot.state = 'idle';
+        sleepBot(bot);
+      });
       return;
     }
     // 局后: 稍等重开(再来一局);失败则离桌回大厅
@@ -613,7 +617,7 @@ function sleepBot(bot: BotInstance): boolean {
 }
 
 /** 轮换: 按当前时段目标活跃数(黄金多/夜间0)调整,并遵守每日对局上限 */
-function rotateActive(serverUrl: string): void {
+async function rotateActive(serverUrl: string): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
   const target = currentMaxActive();
   const activeNow = () => bots.filter(b => b.state !== 'sleep').length;
@@ -632,6 +636,40 @@ function rotateActive(serverUrl: string): void {
     });
     if (!sleeping) break;
     wakeBot(sleeping, serverUrl);
+  }
+  // 数量刚好 → 主动轮换「独占空桌等真人」的机器人,让新面孔出现(模拟真人进出大厅)
+  if (activeNow() === target && target > 0) {
+    const sleepers = bots.filter(b =>
+      b.state === 'sleep' && !(b.dayKey === today && b.gamesToday >= DAILY_GAME_CAP));
+    if (sleepers.length === 0) return;
+    // 用任意活跃机器人 socket 查桌列表,识别「独占等真人」的机器人(避免误伤陪真人的)
+    const probe = bots.find(b => b.state !== 'sleep' && b.socket && !b.socket.disconnected);
+    if (!probe) return;
+    const { ok, data } = await emitAck(probe.socket!, 'getTableList', {});
+    if (!ok || !Array.isArray(data)) return;
+    const tables = data as Array<{ id: number; started: boolean; p1: any; p2: any }>;
+    const soloWaiters = bots.filter(b => {
+      if (b.state !== 'sitting' || !b.socket) return false;
+      const t = tables.find(x => {
+        const a = x.p1, c = x.p2;
+        return (a && a.name === b.nickname) || (c && c.name === b.nickname);
+      });
+      if (!t) return false;
+      const me = t.p1 && t.p1.name === b.nickname ? t.p1 : t.p2;
+      const other = me === t.p1 ? t.p2 : t.p1;
+      return !!other && !other.name; // 对面无人 → 独占等真人
+    });
+    if (soloWaiters.length === 0) return;
+    const n = Math.min(2, soloWaiters.length, sleepers.length);
+    for (let i = 0; i < n; i++) {
+      const leave = soloWaiters[i];
+      if (sleepBot(leave)) {
+        const enter = sleepers[Math.floor(Math.random() * sleepers.length)];
+        wakeBot(enter, serverUrl);
+        sleepers.splice(sleepers.indexOf(enter), 1);
+      }
+    }
+    console.log(`[BOT] 轮换 ${n} 个活跃机器人(新面孔入厅)`);
   }
 }
 

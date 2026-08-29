@@ -373,6 +373,11 @@ app.use('/api/auth', (0, routes_1.createAuthRouter)());
 app.use('/api/monitor', (0, monitor_1.createMonitorRouter)());
 // 管理后台 REST 接口(ADMIN_TOKEN 保护)
 app.use('/api/admin', (0, admin_1.createAdminRouter)());
+// 排行榜(公开数据,无需鉴权): ?type=score 积分榜 / ?type=active 今日活跃榜,各取前十
+app.get('/api/leaderboard', (_req, res) => {
+    const type = _req.query.type === 'active' ? 'active' : 'score';
+    res.json({ ok: true, data: (0, db_1.getLeaderboard)(type, 10) });
+});
 // 静态托管：基于 process.cwd() 解析 client/dist，兼容 ts-node 和编译后运行
 // ts-node 运行 server/server.ts 时 cwd 是项目根
 // node dist/server/server.js 运行时 cwd 是项目根

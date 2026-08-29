@@ -53,6 +53,8 @@ exports.findLatestSmsCode = findLatestSmsCode;
 exports.markSmsCodeConsumed = markSmsCodeConsumed;
 exports.getRecord = getRecord;
 exports.updateRecord = updateRecord;
+exports.localDateStr = localDateStr;
+exports.getLeaderboard = getLeaderboard;
 /**
  * 用户管理 · JSON 文件数据访问层（纯 JS，无原生模块依赖）
  * 单文件 data/users.json，首次启动自动创建
@@ -271,6 +273,7 @@ function emptyRecord(uid) {
     return {
         uid, totalGames: 0, wins: 0, losses: 0, draws: 0,
         totalScore: 0, firstBloods: 0, successfulAttacks: 0, ultimateKills: 0,
+        todayGames: 0, todayKey: '',
     };
 }
 function getRecord(uid) {
@@ -287,5 +290,43 @@ function updateRecord(uid, patch) {
         data.records[uid] = emptyRecord(uid);
     Object.assign(data.records[uid], patch);
     saveData();
+}
+// ===== 排行榜 =====
+/** 本地时区日期 YYYY-MM-DD(活跃榜按本地"今天"统计) */
+function localDateStr(d = new Date()) {
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${m}-${day}`;
+}
+/**
+ * 排行榜前十
+ * @param type 'score' = 累计积分榜; 'active' = 今日活跃榜(当天对局数,跨日自动归零)
+ * @param limit 数量(默认 10)
+ */
+function getLeaderboard(type, limit = 10) {
+    const data = loadData();
+    const today = localDateStr();
+    const userByUid = new Map();
+    for (const u of data.users)
+        userByUid.set(`u${u.id}`, u);
+    const rows = [];
+    for (const r of Object.values(data.records)) {
+        const user = userByUid.get(r.uid);
+        if (!user)
+            continue; // 记录对应用户已删除
+        const todayGames = r.todayKey === today ? (r.todayGames || 0) : 0;
+        rows.push({
+            rank: 0,
+            uid: r.uid,
+            nickname: user.nickname,
+            isBot: !!user.isBot,
+            totalScore: r.totalScore || 0,
+            totalGames: r.totalGames || 0,
+            wins: r.wins || 0,
+            todayGames,
+        });
+    }
+    rows.sort((a, b) => type === 'score' ? b.totalScore - a.totalScore : b.todayGames - a.todayGames);
+    return rows.slice(0, limit).map((r, i) => ({ ...r, rank: i + 1 }));
 }
 //# sourceMappingURL=db.js.map

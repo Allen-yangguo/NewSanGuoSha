@@ -30,6 +30,8 @@ export function settleGame(uid: string | null, settlement: GameSettlement, myPid
   const isWin = settlement.winner === myPid;
   const isDraw = settlement.winner === null;
   const isLoss = !isWin && !isDraw;
+  const d = new Date();
+  const todayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
   const patch: Partial<RecordRow> = {
     totalGames: rec.totalGames + 1,
@@ -40,6 +42,9 @@ export function settleGame(uid: string | null, settlement: GameSettlement, myPid
     firstBloods: rec.firstBloods + (settlement.breakdown[myPid].firstBlood > 0 ? 1 : 0),
     successfulAttacks: rec.successfulAttacks + (settlement.breakdown[myPid].combatScore > 0 ? 1 : 0),
     ultimateKills: rec.ultimateKills,
+    // 今日活跃累计(跨日重置)
+    todayGames: rec.todayKey === todayKey ? (rec.todayGames || 0) + 1 : 1,
+    todayKey,
   };
   updateRecord(uid, patch);
 }

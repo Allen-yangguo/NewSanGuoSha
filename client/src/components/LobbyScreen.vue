@@ -8,7 +8,10 @@
 <template>
   <div class="lobby">
     <div class="lobby-box lobby-wide">
-      <div class="lobby-title">新三国杀 · 大厅</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+        <div class="lobby-title">新三国杀 · 大厅</div>
+        <button class="btn gold" style="font-size:13px;padding:6px 14px;" @click="openBoard">🏆 排行榜</button>
+      </div>
       <div class="lobby-sub">
         10 桌并行 · 选空座坐下 · 双方准备即开局<br/>
         好友打开同一网址进入同一大厅即可同桌
@@ -121,6 +124,41 @@
         <div>规则：6 血 6 气 · 104 张牌库 · 兵法倒计时 · 掉血补气</div>
       </div>
     </div>
+
+    <!-- 排行榜弹窗 -->
+    <div v-if="showBoard" class="modal-overlay" @click.self="showBoard = false">
+      <div class="confirm-box board-box">
+        <div class="confirm-title">🏆 排行榜</div>
+        <div style="display:flex;gap:8px;justify-content:center;margin:10px 0 4px;">
+          <button class="btn" :class="{ 'board-tab-on': boardType === 'score' }" @click="switchBoard('score')">📊 积分榜</button>
+          <button class="btn" :class="{ 'board-tab-on': boardType === 'active' }" @click="switchBoard('active')">🔥 今日活跃</button>
+        </div>
+        <table class="board-table">
+          <thead>
+            <tr>
+              <th>名次</th>
+              <th>玩家</th>
+              <th>{{ boardType === 'score' ? '积分' : '今日对局' }}</th>
+              <th v-if="boardType === 'score'">胜场</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in boardRows" :key="row.uid">
+              <td><span class="board-rank" :class="'r' + row.rank">{{ row.rank }}</span></td>
+              <td class="board-name">{{ row.nickname }}</td>
+              <td class="board-val">{{ boardType === 'score' ? row.totalScore : row.todayGames }}</td>
+              <td v-if="boardType === 'score'" class="board-val">{{ row.wins }}</td>
+            </tr>
+            <tr v-if="boardRows.length === 0">
+              <td colspan="4" style="text-align:center;color:#8E734F;padding:18px 0;">暂无数据</td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="text-align:center;margin-top:10px;">
+          <button class="btn dark" @click="showBoard = false">关闭</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -131,6 +169,7 @@ import {
   sitDown, standUp, ready, cancelReady, fetchTableList,
   spectate,
 } from '../store/gameStore';
+import { fetchLeaderboard, type LeaderboardRow } from '../api/leaderboard';
 import type { Slot, TableSummary } from '../types/protocol';
 import MusicButton from './MusicButton.vue';
 
@@ -138,6 +177,23 @@ defineEmits<{ exit: [] }>();
 
 /** 当前展开旁观视角选择的桌 id */
 const specMenu = ref<number | null>(null);
+
+// ===== 排行榜 =====
+const showBoard = ref(false);
+const boardType = ref<'score' | 'active'>('score');
+const boardRows = ref<LeaderboardRow[]>([]);
+async function loadBoard(): Promise<void> {
+  boardRows.value = await fetchLeaderboard(boardType.value);
+}
+async function openBoard(): Promise<void> {
+  showBoard.value = true;
+  await loadBoard();
+}
+function switchBoard(type: 'score' | 'active'): void {
+  if (boardType.value === type) return;
+  boardType.value = type;
+  loadBoard();
+}
 
 async function onSpectate(tableId: number, pid: 0 | 1): Promise<void> {
   specMenu.value = null;
@@ -319,4 +375,61 @@ onMounted(() => {
   font-size: 12px; color: #8E734F; text-align: center; line-height: 1.8;
   margin-top: 2px;
 }
+
+/* ===== 排行榜弹窗 ===== */
+.board-box {
+  width: min(92vw, 420px);
+  max-height: 82vh;
+  overflow-y: auto;
+}
+.board-tab-on {
+  background: linear-gradient(180deg, #B49769, #9A7B3F) !important;
+  color: #FFF8E4 !important;
+  border-color: #8A6A3B !important;
+  font-weight: 700;
+}
+.board-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+  font-size: 13px;
+}
+.board-table th {
+  color: #8E734F;
+  font-weight: 700;
+  padding: 6px 4px;
+  border-bottom: 1px solid #D9C190;
+  text-align: center;
+}
+.board-table td {
+  padding: 7px 4px;
+  border-bottom: 1px dashed #E5D5AE;
+  text-align: center;
+}
+.board-table tbody tr:nth-child(1) td { background: rgba(201, 162, 39, 0.10); }
+.board-table tbody tr:nth-child(2) td { background: rgba(160, 160, 160, 0.08); }
+.board-table tbody tr:nth-child(3) td { background: rgba(160, 92, 46, 0.08); }
+.board-rank {
+  display: inline-block;
+  min-width: 22px;
+  height: 22px;
+  line-height: 22px;
+  border-radius: 50%;
+  background: #8A6A3B;
+  color: #FFF8E4;
+  font-size: 12px;
+  font-weight: 800;
+}
+.board-rank.r1 { background: linear-gradient(180deg, #E9C55C, #C9A227); color: #5A3E00; }
+.board-rank.r2 { background: linear-gradient(180deg, #C9CDD4, #9AA0A8); color: #3A3F45; }
+.board-rank.r3 { background: linear-gradient(180deg, #D9A06B, #B5753A); color: #4A2500; }
+.board-name {
+  font-weight: 700;
+  color: #4B3B2A;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-val { font-weight: 800; color: #B5463A; }
 </style>
