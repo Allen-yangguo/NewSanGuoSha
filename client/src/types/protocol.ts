@@ -124,6 +124,8 @@ export interface TableSeatView {
 export interface TableSummary {
   id: number;
   started: boolean;
+  /** 对局是否已结束(gameOver,等待「再来一局」) */
+  gameOver: boolean;
   p1: TableSeatView;
   p2: TableSeatView;
 }

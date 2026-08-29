@@ -264,6 +264,7 @@ function buildTableSummary(table) {
     return {
         id: table.id,
         started: table.started,
+        gameOver: table.started && table.engine.state.gameOver,
         p1: seatView(table, 'p1'),
         p2: seatView(table, 'p2'),
     };

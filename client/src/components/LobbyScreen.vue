@@ -48,8 +48,8 @@
                   {{ isMySeat(t, 'p1') ? '我' : t.p1.name }}
                   <span v-if="!t.p1.present" class="seat-off" title="掉线重连中">⌛</span>
                 </div>
-                <div class="seat-ready" :class="{ on: t.p1.ready }">
-                  {{ t.p1.ready ? '✓ 已准备' : '未准备' }}
+                <div class="seat-ready" :class="t.started ? (t.gameOver ? 'over' : 'fighting') : (t.p1.ready ? 'on' : '')">
+                  {{ t.started ? (t.gameOver ? '🏁 已结束' : '⚔ 对局中') : (t.p1.ready ? '✓ 已准备' : '未准备') }}
                 </div>
               </template>
               <button
@@ -69,8 +69,8 @@
                   {{ isMySeat(t, 'p2') ? '我' : t.p2.name }}
                   <span v-if="!t.p2.present" class="seat-off" title="掉线重连中">⌛</span>
                 </div>
-                <div class="seat-ready" :class="{ on: t.p2.ready }">
-                  {{ t.p2.ready ? '✓ 已准备' : '未准备' }}
+                <div class="seat-ready" :class="t.started ? (t.gameOver ? 'over' : 'fighting') : (t.p2.ready ? 'on' : '')">
+                  {{ t.started ? (t.gameOver ? '🏁 已结束' : '⚔ 对局中') : (t.p2.ready ? '✓ 已准备' : '未准备') }}
                 </div>
               </template>
               <button
@@ -99,10 +99,10 @@
             <button class="btn dark" :disabled="connecting" @click="onStandUp">站起</button>
           </div>
           <div v-else-if="isMyTable(t) && t.started" class="table-actions">
-            <div class="playing-hint">对局进行中 · 切换到对战界面</div>
+            <div class="playing-hint">{{ t.gameOver ? '对局已结束 · 在对战界面点「再来一局」' : '对局进行中 · 切换到对战界面' }}</div>
           </div>
-          <!-- 对局进行中: 旁观入口(未入座此桌也可旁观) -->
-          <div v-if="t.started && !isMyTable(t)" class="table-actions">
+          <!-- 对局进行中: 旁观入口(未入座此桌也可旁观;对局已结束不再提供旁观) -->
+          <div v-if="t.started && !t.gameOver && !isMyTable(t)" class="table-actions">
             <template v-if="specMenu === t.id">
               <button class="btn" @click="onSpectate(t.id, 0)">👁 p1 视角</button>
               <button class="btn" @click="onSpectate(t.id, 1)">👁 p2 视角</button>
@@ -240,6 +240,7 @@ function canSit(t: TableSummary, slot: Slot): boolean {
 }
 
 function stateText(t: TableSummary): string {
+  if (t.started && t.gameOver) return '已结束';
   if (t.started) return '对战中';
   const occ = (t.p1.name !== null ? 1 : 0) + (t.p2.name !== null ? 1 : 0);
   if (occ === 0) return '空桌';
@@ -247,6 +248,7 @@ function stateText(t: TableSummary): string {
   return '准备中';
 }
 function stateClass(t: TableSummary): string {
+  if (t.started && t.gameOver) return 'over';
   if (t.started) return 'playing';
   const occ = (t.p1.name !== null ? 1 : 0) + (t.p2.name !== null ? 1 : 0);
   if (occ === 0) return 'empty';
@@ -325,6 +327,7 @@ onMounted(() => {
   background: #B49769; color: #FFF8E4;
 }
 .table-state.playing { background: linear-gradient(#B5463A, #8C3329); }
+.table-state.over    { background: linear-gradient(#8A6A3B, #6B4A2B); }
 .table-state.ready   { background: linear-gradient(#3E6E7A, #2D5460); }
 .table-state.wait    { background: linear-gradient(#8A6D29, #6A521E); }
 .table-state.empty   { background: linear-gradient(#999, #666); }
@@ -366,6 +369,8 @@ onMounted(() => {
   font-size: 11px; color: #8E734F;
 }
 .seat-ready.on { color: #2D5460; font-weight: 700; }
+.seat-ready.fighting { color: #B5463A; font-weight: 800; }
+.seat-ready.over { color: #8A6A3B; font-weight: 800; }
 .seat-sit {
   width: 100%; font-size: 13px; padding: 8px 0;
 }
