@@ -271,6 +271,17 @@ export function initStore(): void {
   const socket = getSocket();
   socket.on('connect', () => {
     connected.value = true; connecting.value = false;
+    // 旁观中若断线重连: 服务端已随断开清理旁观标记,本地必须复位旁观态,否则界面卡在「旁观中」禁操作
+    if (spectating.value) {
+      spectating.value = false;
+      state.started = false;
+      state.yourSlot = null;
+      state.yourPid = null;
+      state.you = emptyPlayer(0, '我');
+      state.opponent = emptyPlayer(1, '对手');
+      clearPlayedCards();
+      pushToast('⚠ 旁观已中断，请重新旁观');
+    }
     // 拉取大厅桌列表
     fetchTableList();
     // 若有保存的桌号+座位 → 尝试 reclaim 重连（服务端按身份恢复座位）
@@ -687,6 +698,8 @@ export async function sitDown(tableId: number, slot: Slot, name?: string): Promi
     state.myTableId = data.tableId;
     state.mySlot = data.slot;
     state.myReady = false;
+    // 防御性复位: 任何残留的旁观态都不应影响正常入座对局
+    spectating.value = false;
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(TABLE_KEY, String(data.tableId));
       localStorage.setItem(SLOT_KEY, data.slot);

@@ -147,8 +147,10 @@ function lobbyLoop(bot: BotInstance): void {
     const tables = data as Array<{ id: number; started: boolean; p1: any; p2: any }>;
     const free = tables.filter(t => !t.started);
     // 入座优先级(让真人随时有对手可约 + 保留机器人互对供旁观):
-    // 1) 桌上已有 1 个真人(陪真人打) 2) 空桌独占等真人(限量 SOLO_WAIT_CAP)
-    // 3) 桌上已有 1 个机器人(机器互打,限量 MAX_BOT_VS_BOT) 4) 闲逛
+    // 1) 桌上已有 1 个真人(陪真人打)
+    // 2) 保底互打: 当前没有任何机器人互对局时,先开一桌供旁观(botWait 伙伴 > 自己占空桌等伙伴)
+    // 3) 空桌独占等真人(限量 SOLO_WAIT_CAP)
+    // 4) 桌上已有 1 个机器人(机器互打,限量 MAX_BOT_VS_BOT)
     const humanWait = free.filter(t => {
       const a = seatTaken(t.p1), b = seatTaken(t.p2);
       return a !== b && !seatIsBot(a ? t.p1 : t.p2);
@@ -163,11 +165,20 @@ function lobbyLoop(bot: BotInstance): void {
       return a !== b && seatIsBot(a ? t.p1 : t.p2);
     }).length;
     const bvc = botVsBotCount(tables);
+    const idleCount = bots.filter(b => b.state === 'idle').length;
     let target: any = null;
     let slot: 'p1' | 'p2' = 'p1';
     if (humanWait.length > 0) {
       target = humanWait[0];
       slot = !seatTaken(target.p1) ? 'p1' : 'p2';
+    } else if (bvc === 0 && botWait.length > 0) {
+      // 保底: 当前无机器人互对局,加入已在等伙伴的机器人桌,启动互打供旁观
+      target = botWait[0];
+      slot = !seatTaken(target.p1) ? 'p1' : 'p2';
+    } else if (bvc === 0 && empty.length > 0 && idleCount >= 2) {
+      // 保底: 自己占空桌等伙伴(至少 2 个空闲机器人时才开新保底桌)
+      target = empty[Math.floor(Math.random() * empty.length)];
+      slot = 'p1';
     } else if (empty.length > 0 && soloWait < SOLO_WAIT_CAP) {
       target = empty[Math.floor(Math.random() * empty.length)];
       slot = 'p1';
