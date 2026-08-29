@@ -6,6 +6,7 @@
     "test:deck": "ts-node test/verify-deck.ts",
     "test:engine": "ts-node test/verify-engine.ts",
     "test:v43": "ts-node test/verify-v43.ts",
+    "test:v6": "node test/v6-smoke.js",
     "build:web": "node scripts/build-web.js",
     "build:server": "tsc && node scripts/copy-pages.js",
     "build": "npm run build:server && cd client && npm install && npm run build",
@@ -15,8 +16,7 @@
     "dev:server": "ts-node server/server.ts"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2",
-    "socket.io-client": "^4.8.3"
+    "esbuild": "^0.28.2"
   },
   "dependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -29,6 +29,7 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
     "tencentcloud-sdk-nodejs-sms": "^4.1.240",
     "ts-node": "^10.9.0",
     "typescript": "^5.4.0"

@@ -52,6 +52,10 @@ interface MinuteBucket {
 interface LiveState {
   online: number;
   activeTables: number;
+  /** 模拟玩家在线数(机器人) */
+  onlineBots?: number;
+  /** 双方均为模拟玩家的对局中桌数 */
+  activeTablesBots?: number;
 }
 
 // ============================================================
@@ -304,7 +308,11 @@ export function createMonitorRouter(): Router {
       },
       live: {
         online: liveNow.online,
+        onlineReal: Math.max(0, liveNow.online - (liveNow.onlineBots || 0)),
+        onlineBots: liveNow.onlineBots || 0,
         activeTables: liveNow.activeTables,
+        activeTablesReal: Math.max(0, liveNow.activeTables - (liveNow.activeTablesBots || 0)),
+        activeTablesBots: liveNow.activeTablesBots || 0,
         totalRequests,
         requestsLastMinute,
         qps: requestsLastMinute / 60,
@@ -436,6 +444,8 @@ export function startMonitor(getLive: () => LiveState): void {
     const s = sampler();
     liveNow.online = s.online;
     liveNow.activeTables = s.activeTables;
+    if (s.onlineBots !== undefined) liveNow.onlineBots = s.onlineBots;
+    if (s.activeTablesBots !== undefined) liveNow.activeTablesBots = s.activeTablesBots;
     const b = currentBucket();
     if (s.online > b.online) b.online = s.online;
     if (s.activeTables > b.activeTables) b.activeTables = s.activeTables;

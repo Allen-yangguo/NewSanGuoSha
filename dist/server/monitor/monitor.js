@@ -317,7 +317,11 @@ function createMonitorRouter() {
             },
             live: {
                 online: liveNow.online,
+                onlineReal: Math.max(0, liveNow.online - (liveNow.onlineBots || 0)),
+                onlineBots: liveNow.onlineBots || 0,
                 activeTables: liveNow.activeTables,
+                activeTablesReal: Math.max(0, liveNow.activeTables - (liveNow.activeTablesBots || 0)),
+                activeTablesBots: liveNow.activeTablesBots || 0,
                 totalRequests,
                 requestsLastMinute,
                 qps: requestsLastMinute / 60,
@@ -448,6 +452,10 @@ function startMonitor(getLive) {
         const s = sampler();
         liveNow.online = s.online;
         liveNow.activeTables = s.activeTables;
+        if (s.onlineBots !== undefined)
+            liveNow.onlineBots = s.onlineBots;
+        if (s.activeTablesBots !== undefined)
+            liveNow.activeTablesBots = s.activeTablesBots;
         const b = currentBucket();
         if (s.online > b.online)
             b.online = s.online;

@@ -39,6 +39,9 @@ exports.findUserByUsername = findUserByUsername;
 exports.findUserByAccount = findUserByAccount;
 exports.findUserById = findUserById;
 exports.createUser = createUser;
+exports.createBotUser = createBotUser;
+exports.listBots = listBots;
+exports.isBotUser = isBotUser;
 exports.updateUserNickname = updateUserNickname;
 exports.updateUserPassword = updateUserPassword;
 exports.listUsers = listUsers;
@@ -137,6 +140,37 @@ function createUser(phone, passwordHash, nickname, username = '') {
     data.users.push(row);
     saveData();
     return row;
+}
+// ===== 模拟玩家（机器人）=====
+/** 创建模拟玩家（昵称由调用方生成；永不用于真实登录） */
+function createBotUser(nickname) {
+    const data = loadData();
+    const now = new Date().toISOString();
+    const row = {
+        id: data.nextId.users++,
+        phone: '',
+        username: `bot_${Date.now()}_${data.nextId.users}`,
+        password_hash: '$2b$10$botbotbotbotbotbotbotbotbotbotbotbotbotb', // 不可登录
+        nickname,
+        created_at: now,
+        updated_at: now,
+        isBot: true,
+    };
+    data.users.push(row);
+    saveData();
+    return row;
+}
+/** 所有模拟玩家 */
+function listBots() {
+    return loadData().users.filter(u => u.isBot);
+}
+/** 判断某用户是否为模拟玩家 */
+function isBotUser(uid) {
+    if (!uid.startsWith('u'))
+        return false;
+    const id = Number(uid.slice(1));
+    const u = loadData().users.find(x => x.id === id);
+    return !!u?.isBot;
 }
 function updateUserNickname(id, nickname) {
     const data = loadData();

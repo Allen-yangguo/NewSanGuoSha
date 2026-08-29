@@ -172,6 +172,10 @@ export interface ClientEvents {
   playCard: (payload: { cardUid: string }, ack?: (ok: boolean, data: any) => void) => void;
   /** 使用智者锦囊 */
   usePouch: (payload: { strategistId: string; pouch: 'que' | 'can' | 'ji'; choice: string }, ack?: (ok: boolean, data: any) => void) => void;
+  /** 旁观对局: 选择任意一方视角 */
+  spectate: (payload: { tableId: number; pid: 0 | 1 }, ack?: (ok: boolean, data: any) => void) => void;
+  /** 退出旁观 */
+  spectateExit: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   useBonus: (payload: { type: 'normal' | 'big' | 'burst' }, ack?: (ok: boolean, data: any) => void) => void;
   confirmDefend: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   giveUpEmergencyHeal: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;

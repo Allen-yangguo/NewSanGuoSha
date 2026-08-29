@@ -49,13 +49,19 @@ import {
   dashboardHandler,
 } from './monitor/monitor';
 import { createAdminRouter, adminDashboardHandler } from './admin/admin';
+import { initBotSystem, shutdownBots, getBotSocketIds } from './bots/botManager';
+
+/** 旁观者: 桌id -> socket id 集合(用于 roomState 推送) */
+const spectators = new Map<number, Set<string>>();
+/** 旁观者视角: socket id -> 旁观槽位(p1/p2) */
+const spectatorSlots = new Map<string, Slot>();
 
 // ============================================================
 // 配置
 // ============================================================
 const PORT = Number(process.env.PORT || 3000);
 const BIND_HOST = process.env.BIND_HOST || '0.0.0.0'; // 局域网/公网均需 0.0.0.0
-const TABLE_COUNT = 5; // 大厅并行桌数
+const TABLE_COUNT = 10; // 大厅并行桌数
 
 // ============================================================
 // 工具：获取本机局域网 IPv4
@@ -287,10 +293,11 @@ function buildPlayerView(
  * 为某个 socket（玩家视角）生成过滤后的桌内状态
  */
 function buildRoomState(socketId: string, table: Table): RoomStateView {
-  // 找出这个 socket 在 p1 / p2 哪个槽
+  // 找出这个 socket 在 p1 / p2 哪个槽(本人入座优先;否则取旁观视角)
   let yourSlot: Slot | null = null;
   if (table.players.p1.socketId === socketId) yourSlot = 'p1';
   else if (table.players.p2.socketId === socketId) yourSlot = 'p2';
+  else yourSlot = spectatorSlots.get(socketId) || null;
 
   const yourPid: PlayerId | null = yourSlot ? table.players[yourSlot].pid : null;
   const me = yourPid !== null ? buildPlayerView(yourSlot!, yourPid, table) : (null as any);
@@ -396,6 +403,11 @@ function broadcastRoomState(io: IOServer, table: Table): void {
   for (const slot of ['p1', 'p2'] as Slot[]) {
     const sid = table.players[slot].socketId;
     if (sid) pushRoomStateTo(io, table, sid);
+  }
+  // 旁观者同步推送
+  const sp = spectators.get(table.id);
+  if (sp) {
+    for (const sid of sp) pushRoomStateTo(io, table, sid);
   }
 }
 /** 向桌内双方广播一个游戏事件（不含隐私数据）*/
@@ -913,6 +925,49 @@ io.on('connection', (socket: Socket) => {
     broadcastTableUpdate(io, table);
   });
 
+  // ---------- 对局旁观 ----------
+  // payload: { tableId, pid(0/1 选择视角) }
+  socket.on('spectate', (payload: { tableId?: number; pid?: number }, ack) => {
+    const cb: (ok: boolean, data: any) => void = typeof ack === 'function' ? ack : () => {};
+    const tableId = payload?.tableId;
+    const pid = payload?.pid;
+    if (typeof tableId !== 'number' || (pid !== 0 && pid !== 1)) {
+      return cb(false, { error: '参数错误' });
+    }
+    const table = tables.find(t => t.id === tableId);
+    if (!table) return cb(false, { error: '桌不存在' });
+    if (!table.started) return cb(false, { error: '对局未开始,暂不可旁观' });
+    // 已入座玩家不能旁观(需先站起),避免视角冲突
+    if (getTableBySocketId(socket.id)) return cb(false, { error: '请先站起再旁观' });
+    const slot: Slot = pid === 0 ? 'p1' : 'p2';
+    (socket.data as any).spectateTable = tableId;
+    (socket.data as any).spectateSlot = slot;
+    spectatorSlots.set(socket.id, slot);
+    let set = spectators.get(tableId);
+    if (!set) { set = new Set(); spectators.set(tableId, set); }
+    set.add(socket.id);
+    socket.join(tableRoom(tableId));
+    console.log(`[IO] ${socket.id} 旁观桌${tableId}(${slot} 视角)`);
+    io.to(socket.id).emit('eventGameStart', { firstPlayerPid: table.engine.state.firstPlayer });
+    pushRoomStateTo(io, table, socket.id);
+    cb(true, { tableId, slot });
+  });
+
+  // ---------- 退出旁观 ----------
+  socket.on('spectateExit', (_payload: any, ack) => {
+    const cb: (ok: boolean, data: any) => void = typeof ack === 'function' ? ack : () => {};
+    const tid = (socket.data as any).spectateTable as number | undefined;
+    if (tid) {
+      const set = spectators.get(tid);
+      if (set) { set.delete(socket.id); if (set.size === 0) spectators.delete(tid); }
+      socket.leave(tableRoom(tid));
+    }
+    spectatorSlots.delete(socket.id);
+    (socket.data as any).spectateTable = null;
+    (socket.data as any).spectateSlot = null;
+    cb(true, { ok: true });
+  });
+
   // ---------- 查询战绩 ----------
   // payload.pid: 指定玩家 pid（用于查看对手战绩）；不传则查自己
   socket.on('getRecord', (payload: { pid?: number } = {}, ack) => {
@@ -950,6 +1005,14 @@ io.on('connection', (socket: Socket) => {
   // ---------- 断开连接 ----------
   socket.on('disconnect', () => {
     console.log(`[IO] 断开：${socket.id}`);
+    // 旁观者清理
+    const spTid = (socket.data as any).spectateTable as number | undefined;
+    if (spTid) {
+      const set = spectators.get(spTid);
+      if (set) { set.delete(socket.id); if (set.size === 0) spectators.delete(spTid); }
+      socket.leave(tableRoom(spTid));
+    }
+    spectatorSlots.delete(socket.id);
     const table = getTableBySocketId(socket.id);
     if (!table) return;
     const slot = getSlotInTable(socket.id, table);
@@ -986,11 +1049,20 @@ async function main() {
   }
   const ip = getLanIp();
   const lanUrl = `http://${ip}:${PORT}`;
-  // 流量监控: 注入实时采样(在线连接数、对局中桌数)
-  startMonitor(() => ({
-    online: io.engine.clientsCount,
-    activeTables: tables.filter(t => t.started).length,
-  }));
+  // 流量监控: 注入实时采样(在线连接数、对局中桌数;区分模拟玩家口径)
+  startMonitor(() => {
+    const botIds = getBotSocketIds();
+    const started = tables.filter(t => t.started);
+    const bothBot = (t: Table): boolean =>
+      !!t.players.p1.socketId && !!t.players.p2.socketId &&
+      botIds.has(t.players.p1.socketId) && botIds.has(t.players.p2.socketId);
+    return {
+      online: io.engine.clientsCount,
+      onlineBots: botIds.size,
+      activeTables: started.length,
+      activeTablesBots: started.filter(bothBot).length,
+    };
+  });
   server.listen(PORT, BIND_HOST, async () => {
     console.log('');
     console.log('╔══════════════════════════════════════════════════╗');
@@ -998,8 +1070,7 @@ async function main() {
     console.log('╠══════════════════════════════════════════════════╣');
     console.log(`║  服务监听：       ${BIND_HOST}:${PORT}                        ║`);
     console.log(`║  本机访问：       ${lanUrl.padEnd(37)}║`);
-    console.log(`║  大厅桌数：       ${TABLE_COUNT} 桌并行（每桌 2 座）            ║`);
-    console.log('║  公网部署：访问服务分配的域名（如 xxx.zeabur.app）║');
+    console.log(`║  大厅桌数：       ${TABLE_COUNT} 桌并行（每桌 2 座）            ║`);    console.log('║  公网部署：访问服务分配的域名（如 xxx.zeabur.app）║');
     console.log('║  局域网部署：访问本机 IP + 端口                  ║');
     console.log('╠══════════════════════════════════════════════════╣');
     console.log('║  前端入口：打开网页选择「单机 vs AI」或「联机」  ║');
@@ -1010,6 +1081,12 @@ async function main() {
     console.log(adminToken
       ? '[ADMIN] 管理后台 /admin 与监控面板 /monitor 共用 ADMIN_TOKEN(已配置)'
       : '[ADMIN] 管理后台与监控面板共用 ADMIN_TOKEN · 警告: 未配置,生产环境(NODE_ENV=production)下将禁用');
+    // v6.0 模拟玩家系统: 预建/每日新增/唤醒第一批(连接本机)
+    try {
+      initBotSystem(`http://127.0.0.1:${PORT}`);
+    } catch (e) {
+      console.error('[BOT] 模拟玩家系统启动失败:', e);
+    }
   });
 }
 
@@ -1033,6 +1110,7 @@ process.on('unhandledRejection', (reason) => {
 // 优雅退出: 收到 SIGTERM/SIGINT(Zeabur 重新部署/停止时发送 SIGTERM)先落盘监控数据
 function shutdown(signal: string): void {
   console.log(`[SERVER] 收到 ${signal},正在保存监控数据并退出...`);
+  shutdownBots();
   stopMonitor();
   process.exit(0);
 }

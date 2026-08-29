@@ -36,6 +36,7 @@ export function createAdminRouter(): Router {
         phone: u.phone || '',
         username: u.username || '',
         nickname: u.nickname || '',
+        isBot: !!u.isBot,
         createdAt: u.created_at,
         updatedAt: u.updated_at,
         record: {

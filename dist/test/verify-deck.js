@@ -9,13 +9,13 @@ const types_1 = require("../assets/scripts/core/types");
 function main() {
     const deck = (0, cards_1.buildFullDeck)();
     (0, cards_1.assertDeckSize)(deck);
-    console.log(`✓ 牌库总数：${deck.length} 张（预期 132）`);
+    console.log(`✓ 牌库总数：${deck.length} 张（预期 135）`);
     // 分类统计
     const counter = {
         [types_1.CardCategory.General]: { count: 0, expected: 44, names: new Set() },
         [types_1.CardCategory.Armor]: { count: 0, expected: 38, names: new Set() },
         [types_1.CardCategory.FunctionQi]: { count: 0, expected: 12, names: new Set() },
-        [types_1.CardCategory.FunctionHp]: { count: 0, expected: 19, names: new Set() },
+        [types_1.CardCategory.FunctionHp]: { count: 0, expected: 22, names: new Set() },
         [types_1.CardCategory.Strategy]: { count: 0, expected: 3, names: new Set() },
         [types_1.CardCategory.Ultimate]: { count: 0, expected: 5, names: new Set() },
         [types_1.CardCategory.Formation]: { count: 0, expected: 6, names: new Set() },
@@ -74,10 +74,10 @@ function main() {
     const qiCards = deck.filter(c => c.category === types_1.CardCategory.FunctionQi);
     const totalQi = qiCards.reduce((s, c) => s + c.value, 0);
     console.log(`✓ 卡牌直接总补气：${totalQi}（预期 32）`);
-    // 补血总量
+    // 补血总量（10 + 16 + 12 = 38）
     const hpCards = deck.filter(c => c.category === types_1.CardCategory.FunctionHp);
     const totalHp = hpCards.reduce((s, c) => s + c.value, 0);
-    console.log(`✓ 全补血总回血量：${totalHp}（预期 31）`);
+    console.log(`✓ 全补血总回血量：${totalHp}（预期 38）`);
     // 绝杀总穿透
     const ults = deck.filter(c => c.category === types_1.CardCategory.Ultimate);
     const totalUlt = ults.reduce((s, c) => s + c.value, 0);
@@ -126,7 +126,7 @@ function main() {
         ids.add(c.id);
     }
     console.log(`\n✓ 卡牌 ID 唯一性：${dup === 0 ? '通过' : `${dup} 个重复`}`);
-    if (allOk && totalAtk === 102 && totalCost === 101 && totalDef === 77 && totalQi === 32 && totalHp === 31 && totalUlt === 6) {
+    if (allOk && totalAtk === 102 && totalCost === 101 && totalDef === 77 && totalQi === 32 && totalHp === 38 && totalUlt === 6) {
         console.log('\n🎉 全部对账通过，牌库配置正确！');
     }
     else {

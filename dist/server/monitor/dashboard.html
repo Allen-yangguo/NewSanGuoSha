@@ -96,6 +96,9 @@
 <header>
   <h1>⚔ 新三国杀 · 流量监控<small>Traffic Monitor</small></h1>
   <div class="spacer"></div>
+  <label style="color:var(--muted);font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;" title="切换统计口径: 包含/过滤模拟玩家">
+    <input type="checkbox" id="includeBots" checked style="cursor:pointer;" /> 包含模拟玩家
+  </label>
   <a class="back" href="/">← 返回游戏</a>
   <select id="range" title="时间范围">
     <option value="60">最近 1 小时</option>
@@ -306,9 +309,14 @@
   // ---------- 渲染 ----------
   function renderSummary(d) {
     const { live, today, server, config } = d;
+    const includeBots = document.getElementById('includeBots').checked;
+    // 统计口径: 勾选=包含模拟玩家; 取消=仅真人
+    const online = includeBots ? live.online : (live.onlineReal ?? live.online);
+    const activeTables = includeBots ? live.activeTables : (live.activeTablesReal ?? live.activeTables);
+    const onlineBots = live.onlineBots || 0;
     const cards = [
-      { label: '当前在线连接', value: fmt(live.online), sub: 'Socket.IO 连接数' },
-      { label: '对局中桌数', value: fmt(live.activeTables), sub: '5 桌大厅' },
+      { label: '当前在线连接', value: fmt(online), sub: includeBots && onlineBots > 0 ? `其中模拟玩家 ${onlineBots}` : 'Socket.IO 连接数' },
+      { label: '对局中桌数', value: fmt(activeTables), sub: '10 桌大厅' },
       { label: '今日请求', value: fmt(today.requests), sub: `约 ${fmtBytes(today.bytesOut)} 响应` },
       { label: '请求速率', value: live.requestsLastMinute + '/分', sub: `QPS ≈ ${(live.qps || 0).toFixed(2)}` },
       { label: '累计请求(本次运行)', value: fmt(live.totalRequests), sub: `入 ${fmtBytes(live.bytesInTotal)} / 出 ${fmtBytes(live.bytesOutTotal)}` },
@@ -373,6 +381,15 @@
   $('range').addEventListener('change', () => {
     rangeMinutes = parseInt($('range').value, 10);
     localStorage.setItem('monitorRange', String(rangeMinutes));
+    refresh();
+  });
+  // 统计口径: 包含/过滤模拟玩家(默认包含,记忆选择)
+  try {
+    const saved = localStorage.getItem('monitorIncludeBots');
+    if (saved !== null) $('includeBots').checked = saved === '1';
+  } catch { /* ignore */ }
+  $('includeBots').addEventListener('change', () => {
+    try { localStorage.setItem('monitorIncludeBots', $('includeBots').checked ? '1' : '0'); } catch { /* ignore */ }
     refresh();
   });
   $('refreshBtn').addEventListener('click', refresh);

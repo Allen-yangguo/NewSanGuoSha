@@ -1,5 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.signToken = signToken;
+exports.createBotToken = createBotToken;
 exports.verifyToken = verifyToken;
 exports.requestCode = requestCode;
 exports.register = register;
@@ -24,6 +26,10 @@ const MAX_LOGIN_FAIL = 5;
 const LOCK_MS = 5 * 60 * 1000;
 function signToken(payload) {
     return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+}
+/** 生成模拟玩家连接 token（机器人专用） */
+function createBotToken(uid) {
+    return signToken({ uid, role: 'user', isBot: true });
 }
 function verifyToken(token) {
     try {

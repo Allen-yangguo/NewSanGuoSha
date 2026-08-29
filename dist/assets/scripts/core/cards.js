@@ -8,7 +8,7 @@ exports.getPouchChoices = getPouchChoices;
 /**
  * 三国卡牌对战 · 全部卡牌数据定义（v5.0 定稿）
  * 牌库对账：
- *   武将 44 + 防具 38 + 功能 31 + 兵法 3 + 绝杀 5 + 阵法 6 + 魅惑 2 + 智者 3 = 132
+ *   武将 44 + 防具 38 + 功能 34 + 兵法 3 + 绝杀 5 + 阵法 6 + 魅惑 2 + 智者 3 = 135
  * 另有限定卡 15 张（不在初始牌库，仅智者锦囊产出）
  */
 const types_1 = require("./types");
@@ -131,12 +131,12 @@ function buildFunctionQi() {
     out.push(...makeCopies('supply', '军需急运', types_1.CardCategory.FunctionQi, types_1.QiTier.Supply, 4, 0, '自身回合打出 · 立即 +4 气', 2));
     return out;
 }
-/** 功能-补血牌：19 张 */
+/** 功能-补血牌：22 张 */
 function buildFunctionHp() {
     const out = [];
     out.push(...makeCopies('wine', '杜康药酒', types_1.CardCategory.FunctionHp, types_1.HpTier.Wine, 1, 0, '未满血回 1 血｜满血时 +1 气', 10));
-    out.push(...makeCopies('medicine', '华佗汤药', types_1.CardCategory.FunctionHp, types_1.HpTier.Medicine, 2, 0, '未满血回 2 血｜满血时 +2 气', 6));
-    out.push(...makeCopies('bandage', '随军伤药', types_1.CardCategory.FunctionHp, types_1.HpTier.Bandage, 3, 0, '未满血回 3 血｜满血时 +3 气', 3));
+    out.push(...makeCopies('medicine', '华佗汤药', types_1.CardCategory.FunctionHp, types_1.HpTier.Medicine, 2, 0, '未满血回 2 血｜满血时 +2 气', 8));
+    out.push(...makeCopies('bandage', '随军伤药', types_1.CardCategory.FunctionHp, types_1.HpTier.Bandage, 3, 0, '未满血回 3 血｜满血时 +3 气', 4));
     return out;
 }
 /** 兵法增伤牌：3 张 */
@@ -300,24 +300,24 @@ function buildCharm() {
     });
     return out;
 }
-/** 构建完整 132 张牌库（按文档数量精确对账） */
+/** 构建完整 135 张牌库（按文档数量精确对账） */
 function buildFullDeck() {
     const out = [];
     out.push(...buildGenerals()); // 44
     out.push(...buildArmors()); // 38
     out.push(...buildFunctionQi()); // 12
-    out.push(...buildFunctionHp()); // 19
+    out.push(...buildFunctionHp()); // 22
     out.push(...buildStrategy()); // 3
     out.push(...buildUltimate()); // 5
     out.push(...buildFormation()); // 6
     out.push(...buildCharm()); // 2
     out.push(...buildStrategists()); // 3
-    // 合计 44+38+12+19+3+5+6+2+3 = 132
+    // 合计 44+38+12+22+3+5+6+2+3 = 135
     return out;
 }
-/** 数量自检（开发期调用，断言牌库总数=132） */
+/** 数量自检（开发期调用，断言牌库总数=135） */
 function assertDeckSize(deck) {
-    const expected = 132;
+    const expected = 135;
     if (deck.length !== expected) {
         throw new Error(`牌库数量错误：期望 ${expected}，实际 ${deck.length}`);
     }
@@ -330,7 +330,7 @@ function assertDeckSize(deck) {
         [types_1.CardCategory.General]: 44,
         [types_1.CardCategory.Armor]: 38,
         [types_1.CardCategory.FunctionQi]: 12,
-        [types_1.CardCategory.FunctionHp]: 19,
+        [types_1.CardCategory.FunctionHp]: 22,
         [types_1.CardCategory.Strategy]: 3,
         [types_1.CardCategory.Ultimate]: 5,
         [types_1.CardCategory.Formation]: 6,

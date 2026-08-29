@@ -1,7 +1,7 @@
 /**
  * 三国卡牌对战 · 全部卡牌数据定义（v5.0 定稿）
  * 牌库对账：
- *   武将 44 + 防具 38 + 功能 31 + 兵法 3 + 绝杀 5 + 阵法 6 + 魅惑 2 + 智者 3 = 132
+ *   武将 44 + 防具 38 + 功能 34 + 兵法 3 + 绝杀 5 + 阵法 6 + 魅惑 2 + 智者 3 = 135
  * 另有限定卡 15 张（不在初始牌库，仅智者锦囊产出）
  */
 import {
@@ -190,7 +190,7 @@ function buildFunctionQi(): CardDef[] {
   return out;
 }
 
-/** 功能-补血牌：19 张 */
+/** 功能-补血牌：22 张 */
 function buildFunctionHp(): CardDef[] {
   const out: CardDef[] = [];
   out.push(...makeCopies(
@@ -199,11 +199,11 @@ function buildFunctionHp(): CardDef[] {
   ));
   out.push(...makeCopies(
     'medicine', '华佗汤药', CardCategory.FunctionHp, HpTier.Medicine,
-    2, 0, '未满血回 2 血｜满血时 +2 气', 6,
+    2, 0, '未满血回 2 血｜满血时 +2 气', 8,
   ));
   out.push(...makeCopies(
     'bandage', '随军伤药', CardCategory.FunctionHp, HpTier.Bandage,
-    3, 0, '未满血回 3 血｜满血时 +3 气', 3,
+    3, 0, '未满血回 3 血｜满血时 +3 气', 4,
   ));
   return out;
 }
@@ -390,25 +390,25 @@ function buildCharm(): CardDef[] {
   return out;
 }
 
-/** 构建完整 132 张牌库（按文档数量精确对账） */
+/** 构建完整 135 张牌库（按文档数量精确对账） */
 export function buildFullDeck(): CardDef[] {
   const out: CardDef[] = [];
   out.push(...buildGenerals());     // 44
   out.push(...buildArmors());       // 38
   out.push(...buildFunctionQi());  // 12
-  out.push(...buildFunctionHp());  // 19
+  out.push(...buildFunctionHp());  // 22
   out.push(...buildStrategy());     // 3
   out.push(...buildUltimate());     // 5
   out.push(...buildFormation());    // 6
   out.push(...buildCharm());        // 2
   out.push(...buildStrategists());  // 3
-  // 合计 44+38+12+19+3+5+6+2+3 = 132
+  // 合计 44+38+12+22+3+5+6+2+3 = 135
   return out;
 }
 
-/** 数量自检（开发期调用，断言牌库总数=132） */
+/** 数量自检（开发期调用，断言牌库总数=135） */
 export function assertDeckSize(deck: CardDef[]): void {
-  const expected = 132;
+  const expected = 135;
   if (deck.length !== expected) {
     throw new Error(`牌库数量错误：期望 ${expected}，实际 ${deck.length}`);
   }
@@ -421,7 +421,7 @@ export function assertDeckSize(deck: CardDef[]): void {
     [CardCategory.General]: 44,
     [CardCategory.Armor]: 38,
     [CardCategory.FunctionQi]: 12,
-    [CardCategory.FunctionHp]: 19,
+    [CardCategory.FunctionHp]: 22,
     [CardCategory.Strategy]: 3,
     [CardCategory.Ultimate]: 5,
     [CardCategory.Formation]: 6,

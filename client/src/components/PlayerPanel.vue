@@ -6,8 +6,8 @@
   <div class="p-panel" :class="me ? 'me' : 'opp'" v-if="player">
     <div
       class="avatar-wrap"
-      :class="{ 'no-click': aiOpponent }"
-      @click="aiOpponent ? null : $emit('avatarClick', player?.pid)"
+      :class="{ 'no-click': aiOpponent || interactive === false }"
+      @click="(aiOpponent || interactive === false) ? null : $emit('avatarClick', player?.pid)"
     >
       <div class="avatar" :class="[me ? '' : 'opp', avatarSizeClass]">
         {{ avatarText }}
@@ -28,6 +28,16 @@
         <span v-if="battleState === 'low'" class="tag lowhp">缺血·攻+1</span>
         <span v-if="battleState === 'crit'" class="tag lowhp">残血·攻+1·耗气-1</span>
       </div>
+      <!-- 持续效果徽章带（名字下方 · 不遮挡） -->
+      <TransitionGroup name="fxbadge" tag="div" class="fx-badges">
+        <span v-for="b in effectBadges" :key="b.key" class="fx-badge" :class="b.color" :title="b.tip">
+          <span class="fx-badge-icon">{{ b.icon }}</span>
+          <span class="fx-badge-label">{{ b.label }}</span>
+          <span class="fx-badge-dots">
+            <i v-for="d in 3" :key="d" :class="{ on: d <= b.remaining, warn: d === b.remaining && b.remaining > 0 }"></i>
+          </span>
+        </span>
+      </TransitionGroup>
       <!-- HP -->
       <div class="bar">
         <span class="bar-label">HP</span>
@@ -44,20 +54,6 @@
         </div>
         <span class="bar-text">{{ player.qi }}</span>
       </div>
-      <!-- Buff chips -->
-      <div class="buffs" v-if="player.strategies?.length">
-        <span
-          v-for="(s, i) in player.strategies"
-          :key="i"
-          class="buff-chip"
-          :class="s.sourceCardUid?.startsWith('manual_burst') ? 'manual-burst' : s.type"
-        >
-          {{ strategyLabel(s.type, s.sourceCardUid) }} +{{ s.layers }}层 · 剩{{ s.remainingTurns }}回合
-        </span>
-      </div>
-      <div class="buffs" v-else>
-        <span class="buff-chip" style="opacity:.6;">无兵法增幅</span>
-      </div>
     </div>
     <div class="side-info">
       <div style="margin-top:6px;font-size:11px;">
@@ -71,10 +67,10 @@
         v-for="tk in pouchTokenList"
         :key="tk.strategistId + tk.pouch"
         class="pouch-token"
-        :class="[tk.faction, { usable: tk.usable, off: !tk.usable }]"
+        :class="[tk.faction, { usable: tk.usable && interactive !== false, off: !tk.usable || interactive === false }]"
         :title="tk.tip"
-        :disabled="!tk.usable"
-        @click.stop="tk.usable && onUsePouch(tk.strategistId, tk.pouch)"
+        :disabled="!tk.usable || interactive === false"
+        @click.stop="tk.usable && interactive !== false && onUsePouch(tk.strategistId, tk.pouch)"
       >{{ tk.label }}</button>
     </div>
   </div>
@@ -94,6 +90,12 @@ const props = defineProps<{
   combatScores?: [number, number];
   /** 对手为 AI 时禁用头像点击(单机模式) */
   aiOpponent?: boolean;
+  /** 是否可交互(旁观模式下禁止出牌/用锦囊等操作) */
+  interactive?: boolean;
+  /** 龟背阵保护方与层数/剩余回合（房间级，用于徽章归属） */
+  guiBeiProtectorPid?: PlayerId | null;
+  guiBeiLayers?: number;
+  guiBeiRemainingTurns?: number;
 }>();
 
 defineEmits<{
@@ -142,16 +144,68 @@ const qiPct = computed(() => {
   return Math.max(0, Math.min(100, (props.player.qi / 12) * 100));
 });
 
-function strategyLabel(t: string, sourceCardUid?: string): string {
-  if (sourceCardUid?.startsWith('manual_burst')) return '手动爆气';
-  const names: Record<string, string> = {
-    sunzi: '孙子兵法',
-    mengde: '孟德新书',
-    qimen: '奇门遁甲',
-    huoshao: '火烧连营',
-  };
-  return names[t] || t;
+// ===== 锦囊徽章（头像下方）=====
+
+// ===== 持续效果徽章带（名字下方）=====
+interface FxBadge {
+  key: string;
+  icon: string;
+  label: string;
+  color: string;
+  remaining: number;
+  tip: string;
 }
+const effectBadges = computed<FxBadge[]>(() => {
+  const list: FxBadge[] = [];
+  if (!props.player) return list;
+  const pid = props.player.pid;
+  // 龟背阵 / 坚壁清野（合并总层数）
+  const gLayers = props.guiBeiLayers ?? 0;
+  const gTurns = props.guiBeiRemainingTurns ?? 0;
+  if (props.guiBeiProtectorPid === pid && gLayers > 0 && gTurns > 0) {
+    list.push({
+      key: 'guibei',
+      icon: '御',
+      label: `减攻-${gLayers}`,
+      color: 'qing',
+      remaining: gTurns,
+      tip: `龟背阵 · 武将攻击 -${gLayers}（绝杀无效）· 持续 3 回合`,
+    });
+  }
+  // 鱼鳞阵
+  if (props.player.yulin && props.player.yulin.active) {
+    list.push({
+      key: 'yulin',
+      icon: '鳞',
+      label: '防具+1',
+      color: 'teal',
+      remaining: props.player.yulin.remainingTurns,
+      tip: '鱼鳞阵 · 己方防具防御 +1 · 持续 3 回合',
+    });
+  }
+  // 兵法增幅（孟德/孙子/奇门/火烧/爆气）
+  const STRAT_META: Record<string, { icon: string; color: string; tip: string }> = {
+    mengde:  { icon: '书', color: 'str', tip: '孟德新书' },
+    sunzi:   { icon: '兵', color: 'str', tip: '孙子兵法' },
+    qimen:   { icon: '奇', color: 'purple', tip: '奇门遁甲' },
+    huoshao: { icon: '火', color: 'fire', tip: '火烧连营' },
+  };
+  for (const s of props.player.strategies || []) {
+    const isBurst = s.sourceCardUid?.startsWith('manual_burst');
+    const m = isBurst
+      ? { icon: '气', color: 'str', tip: '手动爆气' }
+      : STRAT_META[s.type] || { icon: '书', color: 'str', tip: s.type };
+    list.push({
+      key: 'strat_' + s.sourceCardUid + '_' + s.type,
+      icon: m.icon,
+      label: `+${s.layers}层`,
+      color: m.color,
+      remaining: s.remainingTurns,
+      tip: `${m.tip} · 武将攻击 +${s.layers} · 剩 ${s.remainingTurns} 回合`,
+    });
+  }
+  return list;
+});
 
 // ===== 锦囊徽章（头像下方）=====
 import { usePouch } from '../store/gameStore';
@@ -214,11 +268,66 @@ function onUsePouch(strategistId: string, pouch: 'que' | 'can' | 'ji'): void {
 </script>
 
 <style scoped>
+/* ===== 持续效果徽章带（名字下方）===== */
+.fx-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 3px 0;
+  min-height: 20px;
+}
+.fx-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px 1px 4px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.fx-badge-icon {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.75);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 900;
+  font-family: "STZhongsong", "SimSun", serif;
+}
+.fx-badge-dots { display: inline-flex; gap: 2px; }
+.fx-badge-dots i {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.18);
+}
+.fx-badge-dots i.on { background: currentColor; }
+.fx-badge-dots i.warn {
+  background: #E05B5B;
+  animation: fxDotWarn 0.8s ease-in-out infinite;
+}
+@keyframes fxDotWarn {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(1.4); }
+}
+/* 配色 */
+.fx-badge.qing  { background: #DAE3E1; border-color: #344240; color: #2F4644; }
+.fx-badge.teal  { background: #D9EFE4; border-color: #2E6B4C; color: #1F4A35; }
+.fx-badge.purple{ background: #E8E2F5; border-color: #5A4A8C; color: #3A2A6E; }
+.fx-badge.fire  { background: #FBE6D8; border-color: #B5463A; color: #8C3329; }
+.fx-badge.str   { background: #F3E9D7; border-color: #8C6232; color: #5C3A10; }
+
+/* 弹入/淡出 */
+.fxbadge-enter-active { transition: all 0.35s cubic-bezier(.34, 1.56, .64, 1); }
+.fxbadge-enter-from { transform: scale(0) rotate(-90deg); opacity: 0; }
+.fxbadge-leave-active { transition: all 0.4s ease; }
+.fxbadge-leave-to { transform: scale(0.6); opacity: 0; }
+
 /* 锦囊徽章（面板右下角 · 魏蜀吴三色，不遮挡头像与点击） */
 .pouch-tokens {
   position: absolute;
   right: 8px;
-  bottom: 6px;
+  bottom: 5px; /* 配合面板底部 padding，落在气条下方的专用空间 */
   display: flex;
   gap: 4px;
   z-index: 6;
@@ -244,10 +353,10 @@ function onUsePouch(strategistId: string, pouch: 'que' | 'can' | 'ji'): void {
 .pouch-token.shu { background: radial-gradient(circle at 32% 30%, #C9604F, #8C3329); }
 .pouch-token.wu  { background: radial-gradient(circle at 32% 30%, #4E9C74, #2E6B4C); }
 .pouch-token.wei { background: radial-gradient(circle at 32% 30%, #5B86A6, #2F5672); }
-/* 自己可用的锦囊：金色闪烁（亮→暗→亮）+ 可点击 */
+/* 自己可用的锦囊：强闪烁（亮→暗→亮，缩放+光晕）+ 可点击 */
 .pouch-token.usable {
   cursor: pointer;
-  animation: pouchBlink 0.9s ease-in-out infinite;
+  animation: pouchBlink 0.75s ease-in-out infinite;
 }
 .pouch-token.usable:hover {
   transform: scale(1.18);
@@ -264,13 +373,15 @@ function onUsePouch(strategistId: string, pouch: 'que' | 'can' | 'ji'): void {
 @keyframes pouchBlink {
   0%, 100% {
     opacity: 1;
-    filter: brightness(1.35);
-    box-shadow: 0 0 12px rgba(255, 215, 100, 0.95), 0 0 4px rgba(255, 255, 255, 0.7);
+    transform: scale(1.08);
+    filter: brightness(1.6);
+    box-shadow: 0 0 16px rgba(255, 215, 100, 1), 0 0 6px rgba(255, 255, 255, 0.9);
   }
   50% {
-    opacity: 0.35;
-    filter: brightness(0.85);
-    box-shadow: 0 0 2px rgba(255, 215, 100, 0.15);
+    opacity: 0.22;
+    transform: scale(0.82);
+    filter: brightness(0.6);
+    box-shadow: 0 0 2px rgba(255, 215, 100, 0.1);
   }
 }
 </style>

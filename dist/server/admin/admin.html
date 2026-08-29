@@ -243,7 +243,7 @@
       return `<tr>
         <td class="mono">${u.id}</td>
         <td class="mono">${acct}</td>
-        <td>${esc(u.nickname || '—')}</td>
+        <td>${esc(u.nickname || '—')}${u.isBot ? ' <span class="badge" style="background:#3E6E8C;border-color:#2D5460;color:#E8F4FF;">机器人</span>' : ''}</td>
         <td>${time}</td>
         <td class="num">${rec.totalGames || 0}</td>
         <td class="num">${rec.wins || 0}</td>

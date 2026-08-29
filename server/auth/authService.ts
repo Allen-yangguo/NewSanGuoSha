@@ -22,6 +22,8 @@ export interface JwtPayload {
   /** 仅正式用户有 */
   phone?: string;
   role: UserRole;
+  /** 模拟玩家标记（机器人） */
+  isBot?: boolean;
 }
 
 export interface UserInfo {
@@ -30,6 +32,7 @@ export interface UserInfo {
   username?: string;
   nickname?: string;
   role: UserRole;
+  isBot?: boolean;
 }
 
 export interface AuthResult {
@@ -41,8 +44,13 @@ export interface AuthResult {
   debugCode?: string;
 }
 
-function signToken(payload: JwtPayload): string {
+export function signToken(payload: JwtPayload): string {
   return jwt.sign(payload as any, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+}
+
+/** 生成模拟玩家连接 token（机器人专用） */
+export function createBotToken(uid: string): string {
+  return signToken({ uid, role: 'user', isBot: true });
 }
 
 export function verifyToken(token: string): JwtPayload | null {

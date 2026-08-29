@@ -331,21 +331,21 @@ export class GameEngine {
     return { ok: true, message: `大乔 · 敌方气量清空（${before} → 0）` };
   }
 
-  /** 孙尚香（限定魅惑）：偷取敌方【急】锦囊标记；敌方无急锦囊则出牌完全无效 */
+  /** 孙尚香（限定魅惑）：偷取敌方【急】锦囊标记；敌方无急锦囊则出牌完全无效（但牌正常打出消耗） */
   private playSunShangXiang(card: CardInstance, actor: PlayerId): EffectResult {
     const me = this.state.players[actor];
     const enemy = this.state.players[(1 - actor) as PlayerId];
     const targetKey = Object.keys(enemy.pouches).find(k => enemy.pouches[k].ji);
     this.consumeCard(actor, card);
     if (!targetKey) {
-      this.log(`玩家${actor + 1} 打出【孙尚香】· 敌方无急锦囊 · 出牌完全无效`);
-      return { ok: false, message: '孙尚香 · 敌方无急锦囊 · 出牌完全无效' };
+      this.log(`玩家${actor + 1} 打出【孙尚香】· 敌方无急锦囊 · 出牌完全无效（牌已打出消耗）`);
+      return { ok: true, message: '孙尚香 · 敌方无急锦囊 · 出牌完全无效', triggeredCharm: true };
     }
     enemy.pouches[targetKey].ji = false;
     if (!me.pouches[targetKey]) me.pouches[targetKey] = { que: false, can: false, ji: false };
     me.pouches[targetKey].ji = true;
     this.log(`玩家${actor + 1} 打出【孙尚香】· 偷取敌方急锦囊`);
-    return { ok: true, message: '孙尚香 · 成功偷取敌方【急】锦囊' };
+    return { ok: true, message: '孙尚香 · 成功偷取敌方【急】锦囊', triggeredCharm: true };
   }
 
   /** 功能-补气：+气量 */

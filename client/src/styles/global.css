@@ -102,6 +102,18 @@ a { color: #8C4A40; }
 }
 .hand-area > * { flex: 0 0 90px; }
 .hand-empty { color: #8E734F; font-size: 13px; text-align: center; padding: 24px 0; flex: 1 1 auto; }
+/* 旁观模式手牌区: 只读展示(禁点击) */
+.hand-area.spectator { opacity: 0.75; pointer-events: none; }
+
+/* 旁观模式横幅 */
+.spectator-bar {
+  display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap;
+  padding: 6px 12px;
+  background: linear-gradient(135deg, #3E6E8C, #2D5460);
+  color: #E8F4FF;
+  border: 1px solid #1E3C45; border-radius: 10px;
+  font-size: 13px;
+}
 
 /* Toast */
 .toasts { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 9999;
@@ -370,6 +382,76 @@ a { color: #8C4A40; }
   0% { transform: translateY(30px) scale(0.5); opacity: 0; }
   100% { transform: translateY(0) scale(1); opacity: 1; }
 }
+
+/* ===== 打出智者牌过场动画（获得锦囊标记）===== */
+.strategist-overlay {
+  position: fixed; inset: 0; z-index: 9996;
+  background: radial-gradient(ellipse at center, rgba(30, 20, 40, 0.55) 0%, rgba(12, 8, 20, 0.9) 100%);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+  animation: stFade 2s ease-out forwards;
+}
+.st-glow {
+  position: absolute; width: 60vmin; height: 60vmin; border-radius: 50%;
+  background: radial-gradient(circle, rgba(180, 150, 255, 0.4) 0%, rgba(140, 110, 230, 0.14) 45%, transparent 70%);
+  animation: stGlow 2s ease-out forwards;
+}
+.st-name {
+  font-size: 56px; font-weight: 900; letter-spacing: 16px; color: #F3EFFF;
+  text-shadow: 0 0 22px rgba(170, 140, 255, 0.95), 0 3px 0 #3A2A6E;
+  animation: stPop 0.6s cubic-bezier(.34, 1.56, .64, 1) forwards;
+  z-index: 2;
+}
+.st-text {
+  margin-top: 10px;
+  font-size: 22px; font-weight: 800; letter-spacing: 8px; color: #C9B8F5;
+  animation: stPop 0.6s cubic-bezier(.34, 1.56, .64, 1) 0.15s backwards;
+  z-index: 2;
+}
+.st-marks {
+  margin-top: 30px;
+  display: flex; gap: 18px;
+  z-index: 2;
+}
+.st-mark {
+  width: 52px; height: 52px; border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.7);
+  color: #FFF;
+  font-size: 26px; font-weight: 900;
+  display: flex; align-items: center; justify-content: center;
+  font-family: "STZhongsong", "SimSun", serif;
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.5), 0 3px 0 rgba(0, 0, 0, 0.35);
+}
+/* 势力配色：蜀红 / 吴绿 / 魏蓝 */
+.st-mark.shu { background: radial-gradient(circle at 32% 30%, #C9604F, #8C3329); }
+.st-mark.wu  { background: radial-gradient(circle at 32% 30%, #4E9C74, #2E6B4C); }
+.st-mark.wei { background: radial-gradient(circle at 32% 30%, #5B86A6, #2F5672); }
+/* 逐个弹入 */
+.st-mark.m1 { animation: stMarkIn 0.5s cubic-bezier(.34, 1.56, .64, 1) 0.35s backwards; }
+.st-mark.m2 { animation: stMarkIn 0.5s cubic-bezier(.34, 1.56, .64, 1) 0.5s backwards; }
+.st-mark.m3 { animation: stMarkIn 0.5s cubic-bezier(.34, 1.56, .64, 1) 0.65s backwards; }
+@keyframes stFade {
+  0% { opacity: 0; }
+  8% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes stGlow {
+  0% { transform: scale(0); opacity: 0; }
+  16% { opacity: 1; }
+  80% { transform: scale(1.5); opacity: 0.5; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+@keyframes stPop {
+  from { transform: scale(0.4); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+@keyframes stMarkIn {
+  0% { transform: scale(0) rotate(-180deg); opacity: 0; }
+  60% { transform: scale(1.25) rotate(10deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
 @keyframes ultFlash {
   0% { background: #000; }
   8% { background: #FFFFFF; }
@@ -563,7 +645,7 @@ a { color: #8C4A40; }
   display: grid;
   grid-template-columns: 56px 1fr auto;
   gap: 10px; align-items: center;
-  padding: 10px 12px;
+  padding: 10px 12px 30px; /* 底部留出锦囊徽章专用空间，避免遮挡气条 */
   background: rgba(255, 250, 236, 0.85);
   border: 1px solid #D1B988; border-radius: 12px;
 }

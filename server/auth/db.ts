@@ -35,6 +35,8 @@ export interface UserRow {
   nickname: string;
   created_at: string;
   updated_at: string;
+  /** 是否为模拟玩家(机器人) */
+  isBot?: boolean;
 }
 
 let _data: DBData | null = null;
@@ -113,6 +115,39 @@ export function createUser(phone: string, passwordHash: string, nickname: string
   data.users.push(row);
   saveData();
   return row;
+}
+
+// ===== 模拟玩家（机器人）=====
+/** 创建模拟玩家（昵称由调用方生成；永不用于真实登录） */
+export function createBotUser(nickname: string): UserRow {
+  const data = loadData();
+  const now = new Date().toISOString();
+  const row: UserRow = {
+    id: data.nextId.users++,
+    phone: '',
+    username: `bot_${Date.now()}_${data.nextId.users}`,
+    password_hash: '$2b$10$botbotbotbotbotbotbotbotbotbotbotbotbotb', // 不可登录
+    nickname,
+    created_at: now,
+    updated_at: now,
+    isBot: true,
+  };
+  data.users.push(row);
+  saveData();
+  return row;
+}
+
+/** 所有模拟玩家 */
+export function listBots(): UserRow[] {
+  return loadData().users.filter(u => u.isBot);
+}
+
+/** 判断某用户是否为模拟玩家 */
+export function isBotUser(uid: string): boolean {
+  if (!uid.startsWith('u')) return false;
+  const id = Number(uid.slice(1));
+  const u = loadData().users.find(x => x.id === id);
+  return !!u?.isBot;
 }
 
 export function updateUserNickname(id: number, nickname: string): void {

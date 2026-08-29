@@ -139,11 +139,12 @@ function main(): void {
     assert(r2.ok, '孙尚香打出成功');
     assert(!e.state.players[enemy].pouches.zhuge.ji, '敌方急锦囊被偷走');
     assert(e.state.players[fp].pouches.zhuge && e.state.players[fp].pouches.zhuge.ji, '我方获得急锦囊');
-    // 敌方无急锦囊时无效
+    // 敌方无急锦囊时: 出牌成功(正常消耗)但完全无效
     const e2 = freshEngine();
     e2.state.players[0].hand.push(inst('sunshangxiang', 't2_ssx'));
     const r3 = applyCardEffect(e2, inst('sunshangxiang', 't2_ssx'), 0);
-    assert(!r3.ok, '敌方无急锦囊时孙尚香出牌完全无效');
+    assert(r3.ok, '敌方无急锦囊时孙尚香仍可打出（只是完全无效）');
+    assert(!e2.state.players[0].hand.some(c => c.def.id === 'sunshangxiang'), '孙尚香正常消耗（不在手牌）');
   }
 
   console.log('\n=== 司马懿：坚壁清野 2 层龟背阵 ===');

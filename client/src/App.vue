@@ -105,9 +105,9 @@
 
       <!-- 对局主界面 -->
       <template v-else>
-        <!-- 顶部：返回 + 静音 + 日志按钮 -->
+        <!-- 顶部：返回 + 静音 + 日志按钮（旁观模式返回=退出旁观） -->
         <div style="display:flex;justify-content:space-between;gap:6px;">
-          <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="showExitConfirm = true">← 返回</button>
+          <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="spectating ? onExitSpectate() : (showExitConfirm = true)">← 返回</button>
           <div style="display:flex;gap:6px;">
             <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="showLogs = true">
               📜 ({{ state.logs.length }})
@@ -119,16 +119,26 @@
           </div>
         </div>
 
+        <!-- 旁观模式横幅 -->
+        <div class="spectator-bar" v-if="spectating">
+          <span>👁 旁观中 · 正在观看 {{ state.yourSlot?.toUpperCase() }} 视角（不可出牌）</span>
+          <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="onExitSpectate">退出旁观</button>
+        </div>
+
         <!-- 对手面板 -->
         <PlayerPanel
           :player="state.opponent"
           :me="false"
           :ai-opponent="gameMode === 'single'"
+          :interactive="!spectating"
           :first-player-pid="state.firstPlayerPid"
           :active-pid="state.activePid"
           :defense-pid="state.defensePid"
           :emergency-pid="state.emergencyHealPid"
           :combat-scores="state.combatScores"
+          :gui-bei-protector-pid="state.guiBeiProtectorPid"
+          :gui-bei-layers="state.guiBeiLayers"
+          :gui-bei-remaining-turns="state.guiBeiRemainingTurns"
           @avatar-click="onAvatarClick"
         />
 
@@ -148,16 +158,8 @@
           </div>
         </div>
 
-        <!-- 阵法效果指示器 -->
-        <div class="formation-fx" v-if="state.guiBeiProtectorPid !== null">
-          <span class="fx-icon">🛡</span>
-          <span class="fx-name">龟背阵</span>
-          <span class="fx-desc">{{ state.guiBeiProtectorPid === state.yourPid ? '己方' : '对方' }}受保护 · 武将攻击 -1</span>
-          <span class="fx-turns">剩 {{ state.guiBeiRemainingTurns }} 回合</span>
-        </div>
-
-        <!-- 操作按钮区：补气按钮 / 结束回合 / 确认防御 / 放弃救血 -->
-        <div class="action-btns">
+        <!-- 操作按钮区：补气按钮 / 结束回合 / 确认防御 / 放弃救血（旁观模式隐藏） -->
+        <div class="action-btns" v-if="!spectating">
           <button
             class="btn qi"
             :disabled="!canUseNormalQi"
@@ -205,8 +207,8 @@
           >再来一局（重置房间）</button>
         </div>
 
-        <!-- 手牌区（只有自己能看到） -->
-        <div class="hand-area">
+        <!-- 手牌区（只有自己能看到；旁观模式只读展示） -->
+        <div class="hand-area" :class="{ spectator: spectating }">
           <GameCard
             v-for="c in state.you.handCards"
             :key="c.uid"
@@ -229,11 +231,15 @@
         <PlayerPanel
           :player="state.you"
           me
+          :interactive="!spectating"
           :first-player-pid="state.firstPlayerPid"
           :active-pid="state.activePid"
           :defense-pid="state.defensePid"
           :emergency-pid="state.emergencyHealPid"
           :combat-scores="state.combatScores"
+          :gui-bei-protector-pid="state.guiBeiProtectorPid"
+          :gui-bei-layers="state.guiBeiLayers"
+          :gui-bei-remaining-turns="state.guiBeiRemainingTurns"
           @avatar-click="onAvatarClick"
         />
 
@@ -285,6 +291,21 @@
       <div class="pouch-card-name" v-if="pouchAnimating.done">获得 · {{ pouchAnimating.cardName }}</div>
     </div>
 
+    <!-- 打出智者牌过场动画:获得锦囊标记 -->
+    <div class="strategist-overlay" v-if="strategistAnimating">
+      <div class="st-glow"></div>
+      <div class="st-name">{{ strategistAnimating.name }}</div>
+      <div class="st-text">获得锦囊</div>
+      <div class="st-marks">
+        <span
+          v-for="(m, i) in strategistAnimating.marks"
+          :key="m"
+          class="st-mark"
+          :class="[strategistAnimating.faction, 'm' + (i + 1)]"
+        >{{ m }}</span>
+      </div>
+    </div>
+
     <!-- 胜负过场动画 -->
     <div class="go-transition" v-if="state.gameOver && gameOverAnimating" :class="gameOverClass">
       <VictoryAnim v-if="gameOverClass === 'win'" />
@@ -292,8 +313,8 @@
       <div v-else class="go-transition-text">{{ gameOverTitle }}</div>
     </div>
 
-    <!-- 游戏结束遮罩（过场动画结束后显示） -->
-    <div class="gameover-mask" v-if="state.gameOver && !gameOverAnimating">
+    <!-- 游戏结束遮罩（过场动画结束后显示；旁观模式不弹结算） -->
+    <div class="gameover-mask" v-if="state.gameOver && !gameOverAnimating && !spectating">
       <div class="gameover-card">
         <div class="gameover-title" :class="gameOverClass">{{ gameOverTitle }}</div>
         <div class="gameover-desc">{{ state.gameOverDetail }}</div>
@@ -376,7 +397,8 @@ import {
   canEndTurn, canConfirmDefend, canGiveUpHeal, playedCards, gameMode,
   initStore, startSingle, startLan, exitToEntry,
   useBonus, confirmDefend, giveUpHeal, endAction, playCard, resetRoom,
-  ultimateAnimating, pouchAnimating, gameOverAnimating, settlement, recordSummary, fetchRecord, submitSettlement, viewingRecord, fetchRecordByPid,
+  ultimateAnimating, pouchAnimating, strategistAnimating, gameOverAnimating, settlement, recordSummary, fetchRecord, submitSettlement, viewingRecord, fetchRecordByPid,
+  spectating, exitSpectate,
 } from './store/gameStore';
 import { authed, authUser, logout, restoreAuth, isGuest, updateNickname } from './store/authStore';
 import type { CardView, CardCategory, PlayerId } from './types/protocol';
@@ -389,6 +411,11 @@ function onSelectMode(mode: 'single' | 'lan'): void {
   } else {
     startLan();
   }
+}
+
+// ===== 旁观 =====
+function onExitSpectate(): void {
+  exitSpectate();
 }
 
 // ===== 分享网址给好友 =====

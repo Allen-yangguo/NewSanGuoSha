@@ -23,7 +23,7 @@ function main() {
     console.log('=== 引擎初始化测试 ===');
     const engine = new GameEngine_1.GameEngine();
     engine.initGame();
-    assert(engine.state.deck.length === 132 - 10, `牌库剩余 122 张（132-10 初始手牌）实际 ${engine.state.deck.length}`);
+    assert(engine.state.deck.length === 135 - 10, `牌库剩余 125 张（135-10 初始手牌）实际 ${engine.state.deck.length}`);
     assert(engine.state.players[0].hand.length === 5, '玩家1 初始 5 张手牌');
     assert(engine.state.players[1].hand.length === 5, '玩家2 初始 5 张手牌');
     assert(engine.state.players[0].hp === 8, '玩家1 初始血量 8');

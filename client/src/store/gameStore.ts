@@ -34,6 +34,9 @@ export interface PlayedCard {
 }
 export const playedCards = reactive<PlayedCard[]>([]);
 
+/** 是否处于旁观模式(不参与对局,仅观看某方视角) */
+export const spectating = ref(false);
+
 // ===== 局末结算 & 战绩 =====
 export const settlement = ref<any>(null);
 export const recordSummary = ref<any>(null);
@@ -83,6 +86,23 @@ function triggerPouchAnim(candidates: string[], cardName: string): void {
     pouchStepTimer = setTimeout(tick, 70 + 620 * progress * progress);
   };
   pouchStepTimer = setTimeout(tick, 140);
+}
+
+/** 打出智者牌过场动画（获得锦囊标记） */
+export const strategistAnimating = ref<{ name: string; faction: string; marks: string[] } | null>(null);
+let strategistTimer: ReturnType<typeof setTimeout> | null = null;
+/** 智者 → 获得标记 + 势力配色（蜀红/吴绿/魏蓝） */
+const STRATEGIST_MARKS: Record<string, { marks: string[]; faction: string }> = {
+  zhuge:  { marks: ['缺', '残', '急'], faction: 'shu' },
+  zhouyu: { marks: ['缺', '残'],       faction: 'wu' },
+  simayi: { marks: ['缺', '残'],       faction: 'wei' },
+};
+function triggerStrategistAnim(id: string, name: string): void {
+  const info = STRATEGIST_MARKS[id];
+  if (!info) return;
+  if (strategistTimer) clearTimeout(strategistTimer);
+  strategistAnimating.value = { name, faction: info.faction, marks: info.marks };
+  strategistTimer = setTimeout(() => { strategistAnimating.value = null; }, 2000);
 }
 
 /** 胜负过场动画（触发后 3s 自动关闭，给旗帜/跪地动画完整播放时间） */
@@ -471,14 +491,25 @@ export function exitToEntry(): void {
 // ===== Action 封装（根据模式分流） =====
 
 export async function playCard(cardUid: string): Promise<{ ok: boolean; msg: string }> {
+  // 打出智者牌 → 触发"获得锦囊"过场动画
+  const card = state.you.handCards.find(c => c.uid === cardUid);
+  let ok = false;
+  let msg = '';
   if (gameMode.value === 'single' && localEngine) {
     const r = localEngine.playCard(cardUid);
-    if (!r.ok) pushToast('❌ ' + r.message);
-    return { ok: r.ok, msg: r.message };
+    ok = r.ok;
+    msg = r.message;
+    if (!ok) pushToast('❌ ' + msg);
+  } else {
+    const { ok: o, data } = await emit('playCard', { cardUid });
+    ok = o;
+    msg = data?.message || data?.error || '';
+    if (!ok) pushToast('❌ ' + (data?.error || '出牌失败'));
   }
-  const { ok, data } = await emit('playCard', { cardUid });
-  if (!ok) pushToast('❌ ' + (data?.error || '出牌失败'));
-  return { ok, msg: data?.message || data?.error || '' };
+  if (ok && card && card.category === 'strategist') {
+    triggerStrategistAnim(card.id, card.name);
+  }
+  return { ok, msg };
 }
 
 export async function useBonus(type: 'normal' | 'big' | 'burst'): Promise<{ ok: boolean; msg: string }> {
@@ -555,6 +586,40 @@ export async function resetRoom(): Promise<{ ok: boolean; msg: string }> {
   const { ok, data } = await emit('resetRoom', {});
   if (!ok) pushToast('❌ ' + (data?.error || '重置失败'));
   return { ok, msg: data?.message || '' };
+}
+
+// ===== 旁观 =====
+/** 旁观某桌的某方视角(仅联机大厅) */
+export async function spectate(tableId: number, pid: 0 | 1): Promise<{ ok: boolean; msg: string }> {
+  const { ok, data } = await emit('spectate', { tableId, pid });
+  if (!ok) {
+    pushToast('❌ ' + (data?.error || '旁观失败'));
+    return { ok, msg: data?.error || '' };
+  }
+  spectating.value = true;
+  clearPlayedCards();
+  return { ok, msg: '' };
+}
+
+/** 退出旁观,回到大厅 */
+export async function exitSpectate(): Promise<void> {
+  spectating.value = false;
+  settlement.value = null;
+  if (gameMode.value === 'single') return;
+  try { await emit('spectateExit', {}); } catch { /* ignore */ }
+  // 回到大厅态(不站起、不退出联机模式)
+  state.started = false;
+  state.gameOver = false;
+  state.roomId = '';
+  state.yourSlot = null;
+  state.yourPid = null;
+  state.you = emptyPlayer(0, '我');
+  state.opponent = emptyPlayer(1, '对手');
+  state.defensePid = null;
+  state.emergencyHealPid = null;
+  state.actionEnded = [false, false];
+  clearPlayedCards();
+  fetchTableList();
 }
 
 // ===== 大厅 Action（局域网模式）=====

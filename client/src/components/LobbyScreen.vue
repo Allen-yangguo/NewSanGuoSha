@@ -10,7 +10,7 @@
     <div class="lobby-box lobby-wide">
       <div class="lobby-title">新三国杀 · 大厅</div>
       <div class="lobby-sub">
-        5 桌并行 · 选空座坐下 · 双方准备即开局<br/>
+        10 桌并行 · 选空座坐下 · 双方准备即开局<br/>
         好友打开同一网址进入同一大厅即可同桌
       </div>
 
@@ -95,6 +95,15 @@
           <div v-else-if="isMyTable(t) && t.started" class="table-actions">
             <div class="playing-hint">对局进行中 · 切换到对战界面</div>
           </div>
+          <!-- 对局进行中: 旁观入口(未入座此桌也可旁观) -->
+          <div v-if="t.started && !isMyTable(t)" class="table-actions">
+            <template v-if="specMenu === t.id">
+              <button class="btn" @click="onSpectate(t.id, 0)">👁 p1 视角</button>
+              <button class="btn" @click="onSpectate(t.id, 1)">👁 p2 视角</button>
+              <button class="btn dark" @click="specMenu = null">取消</button>
+            </template>
+            <button v-else class="btn" @click="specMenu = specMenu === t.id ? null : t.id">👁 旁观</button>
+          </div>
         </div>
       </div>
 
@@ -116,15 +125,26 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import {
   connecting, lastError, state,
   sitDown, standUp, ready, cancelReady, fetchTableList,
+  spectate,
 } from '../store/gameStore';
 import type { Slot, TableSummary } from '../types/protocol';
 import MusicButton from './MusicButton.vue';
 
 defineEmits<{ exit: [] }>();
+
+/** 当前展开旁观视角选择的桌 id */
+const specMenu = ref<number | null>(null);
+
+async function onSpectate(tableId: number, pid: 0 | 1): Promise<void> {
+  specMenu.value = null;
+  const r = await spectate(tableId, pid);
+  if (!r.ok) return;
+  // 成功旁观 → 切到对战界面(由 App 根据 state.started 渲染)
+}
 
 const shareUrl = computed(() => window.location.origin);
 
