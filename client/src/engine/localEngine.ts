@@ -20,6 +20,7 @@ import {
   UltimateType,
   FormationType,
   StrategyRecord,
+  PouchType,
 } from '@core/types';
 import {
   applyCardEffect,
@@ -147,6 +148,19 @@ export class LocalEngine {
     return { ok: result.ok, message: result.message };
   }
 
+  /** 使用智者锦囊（单机模式人类玩家）——返回完整结果（含获得的卡牌，供过场动画用） */
+  usePouch(strategistId: string, pouch: 'que' | 'can' | 'ji', choice: string): EffectResult {
+    const result = this.engine.usePouch(HUMAN_PID, strategistId, pouch as PouchType, choice);
+    if (result.ok) {
+      this.pushState();
+      if (!this.engine.state.gameOver) {
+        this.tryAutoEndAction();
+      }
+      this.maybeScheduleAI();
+    }
+    return result;
+  }
+
   confirmDefend(): { ok: boolean; message: string } {
     const result = this.engine.defenderPass();
     if (result.ok) {
@@ -266,7 +280,8 @@ export class LocalEngine {
       (this.engine.emergencyHealPending === AI_PID);
 
     if (needAct) {
-      this.aiTimer = setTimeout(() => this.aiAct(), 1500 + Math.random() * 1000);
+      // AI 响应提速：短延迟避免"看起来卡死"（原 1.5~2.5s）
+      this.aiTimer = setTimeout(() => this.aiAct(), 300 + Math.random() * 300);
     }
   }
 
@@ -285,6 +300,10 @@ export class LocalEngine {
           this.pushState();
           if (this.engine.state.gameOver) { this.fireGameOver(); return; }
         }
+      } else if (this.aiUsePouch('ji')) {
+        // 有急锦囊 → 用锦囊拿丹药（随机），随后必须继续调度下一轮行动（否则丹药永不打出 → 卡死）
+        this.maybeScheduleAI();
+        return;
       } else {
         // 没有补血牌 → 放弃
         this.engine.emergencyHealGiveUp();
@@ -313,6 +332,23 @@ export class LocalEngine {
     const ai = this.engine.state.players[AI_PID];
     const opp = this.engine.state.players[HUMAN_PID];
     const hand: CardInstance[] = ai.hand;
+
+    // 0. 手中有智者牌 → 先打出（0 耗气，白得锦囊）
+    const strategist = hand.find((c: CardInstance) => c.def.category === CardCategory.Strategist);
+    if (strategist) {
+      const r = applyCardEffect(this.engine, strategist, AI_PID);
+      if (r.ok) {
+        this.firePlayCardEvent(AI_PID, strategist, r);
+        this.pushState();
+        this.maybeScheduleAI();
+        return;
+      }
+    }
+
+    // 0.5 缺血/残血且有对应锦囊 → 使用（缺血用缺锦囊拿龟背/减伤；残血用残锦囊拿限定武将）
+    // 注意：用完锦囊必须继续调度下一步行动，否则 AI 回合卡死
+    if (ai.hp === 2 && this.aiUsePouch('que')) { this.maybeScheduleAI(); return; }
+    if (ai.hp === 1 && this.aiUsePouch('can')) { this.maybeScheduleAI(); return; }
 
     // 1. 如果气量充足且手中有绝杀牌，对手 HP <= 3 时使用绝杀
     if (opp.hp <= 3) {
@@ -463,9 +499,24 @@ export class LocalEngine {
     }
   }
 
+  /**
+   * AI 使用锦囊：系统随机给出一张（与玩家规则一致）
+   * @returns 是否成功使用
+   */
+  private aiUsePouch(pouch: 'que' | 'can' | 'ji'): boolean {
+    const options = this.engine.getPouchOptions(AI_PID).filter(o => o.pouch === pouch);
+    for (const o of options) {
+      const r = this.engine.usePouch(AI_PID, o.strategistId, pouch as PouchType, '');
+      if (r.ok) {
+        this.pushState();
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** AI 防御决策 */
-  private aiDefend(): void {
-    const atk = this.engine.pendingAttack;
+  private aiDefend(): void {    const atk = this.engine.pendingAttack;
     if (!atk) return;
     const ai = this.engine.state.players[AI_PID];
     const incoming = atk.damage;
@@ -481,7 +532,7 @@ export class LocalEngine {
         this.firePlayCardEvent(AI_PID, bagua, r);
         this.pushState();
         // 八卦阵反弹后防御方切换为原攻击方(玩家),AI 交由 aiDefendContinue 处理后续(自动结算或等玩家出防具)
-        setTimeout(() => this.aiDefendContinue(), 1000);
+        setTimeout(() => this.aiDefendContinue(), 400);
         return;
       }
     }
@@ -498,7 +549,7 @@ export class LocalEngine {
           this.pushState();
           // 看是否需要继续出防具
           if (incoming - this.engine.defensePool > 0 && wouldDie) {
-            setTimeout(() => this.aiDefendContinue(), 800);
+            setTimeout(() => this.aiDefendContinue(), 400);
             return;
           }
           break;
@@ -585,10 +636,12 @@ export class LocalEngine {
       emergencyHealPid: this.engine.emergencyHealPending,
       firstPlayerPid: s.firstPlayer,
       guiBeiProtectorPid: this.engine.guiBeiProtector,
+      guiBeiLayers: this.engine.guiBeiLayers,
       guiBeiRemainingTurns: this.engine.guiBeiRemainingTurns,
       combatScores: [this.engine.scoreTracker.combatScore[0], this.engine.scoreTracker.combatScore[1]] as [number, number],
       deckCount: s.deck.length,
       discardCount: s.discard.length,
+      tableCount: s.table.length,
       actionEnded: [s.actionEnded[0], s.actionEnded[1]],
       you: this.mapPlayer(human, true),
       opponent: this.mapPlayer(ai, false),
@@ -600,6 +653,8 @@ export class LocalEngine {
   }
 
   private mapPlayer(p: PlayerState, showHand: boolean): PlayerView {
+    const strategistNames: Record<string, string> = { zhuge: '诸葛亮', zhouyu: '周瑜', simayi: '司马懿' };
+    const myOptions = showHand ? this.engine.getPouchOptions(p.id) : [];
     return {
       pid: p.id,
       name: p.id === HUMAN_PID ? this.myName : 'AI 对手',
@@ -611,6 +666,26 @@ export class LocalEngine {
       strategies: p.strategies.map(s => this.mapStrategy(s)),
       usedNormalQi: p.usedNormalQi,
       usedBigQi: p.usedBigQi,
+      pouches: Object.keys(p.pouches).map(sid => {
+        const st = p.pouches[sid];
+        const base = {
+          strategistId: sid,
+          strategistName: strategistNames[sid] || sid,
+          que: !!st.que,
+          can: !!st.can,
+          ji: !!st.ji,
+        };
+        if (showHand) {
+          return {
+            ...base,
+            options: myOptions
+              .filter(o => o.strategistId === sid)
+              .map(o => ({ pouch: o.pouch as any, pouchName: o.pouchName, choices: o.choices })),
+          };
+        }
+        return base;
+      }),
+      yulin: { active: p.yulin.active, remainingTurns: p.yulin.remainingTurns },
     };
   }
 

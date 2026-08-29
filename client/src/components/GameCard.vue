@@ -93,6 +93,7 @@ const MAP: Record<string, string> = {
   ultimate: '绝杀',
   formation: '阵法',
   charm: '魅惑',
+  strategist: '智者',
 };
 const catLabel = computed(() => MAP[props.card.category] || props.card.category);
 
@@ -102,9 +103,12 @@ const bigNum = computed(() => {
       if (props.card.id.startsWith('bagua')) return '反';
       if (props.card.id.startsWith('zhuifeng')) return '先';
       if (props.card.id.startsWith('guibei')) return '御';
+      if (props.card.id.startsWith('yulin')) return '鳞';
       return '阵';
     case 'charm':      // 貂蝉 / 小乔 value=0，显示「惑」
       return '惑';
+    case 'strategist': // 诸葛亮 / 周瑜 / 司马懿 value=0，显示「智」
+      return '智';
     case 'function_hp':
     case 'function_qi':
     case 'armor':
@@ -125,6 +129,7 @@ const numClass = computed(() => {
     case 'ultimate':  return 'num-ult';
     case 'formation': return 'num-fmt';
     case 'charm':     return 'num-chm';
+    case 'strategist': return 'num-str';
     default:          return '';
   }
 });
@@ -176,6 +181,7 @@ function onClick(): void {
 .cat-ultimate   { background: linear-gradient(180deg, #2A1A16 0%, #120B09 100%); color: #E8C66E; border-color: #C9A227; box-shadow: 0 3px 0 #8A6D29, 0 8px 16px rgba(0,0,0,.3); }
 .cat-formation  { background: linear-gradient(180deg, #DAE3E1 0%, #BFCFCC 100%); border-color: #344240; }
 .cat-charm      { background: linear-gradient(180deg, #F5DCE6 0%, #E0A8C6 100%); border-color: #8C4A6E; color: #5C2A4E; }
+.cat-strategist { background: linear-gradient(180deg, #E8E2F5 0%, #C9BCE8 100%); border-color: #5A4A8C; color: #3A2A6E; }
 
 .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 4px; }
 .title { font-size: 13px; font-weight: 900; letter-spacing: 1px; }

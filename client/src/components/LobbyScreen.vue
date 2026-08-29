@@ -98,7 +98,8 @@
         </div>
       </div>
 
-      <div style="display:flex;gap:8px;justify-content:center;margin-top:4px;">
+      <div style="display:flex;gap:8px;justify-content:center;align-items:center;margin-top:4px;">
+        <MusicButton />
         <button class="btn dark" @click="$emit('exit')">← 返回</button>
       </div>
 
@@ -121,6 +122,7 @@ import {
   sitDown, standUp, ready, cancelReady, fetchTableList,
 } from '../store/gameStore';
 import type { Slot, TableSummary } from '../types/protocol';
+import MusicButton from './MusicButton.vue';
 
 defineEmits<{ exit: [] }>();
 

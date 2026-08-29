@@ -40,7 +40,23 @@ export type CardCategory =
   | 'strategy'
   | 'ultimate'
   | 'formation'
-  | 'charm';
+  | 'charm'
+  | 'strategist';
+
+/** 锦囊标记视图 */
+export interface PouchView {
+  strategistId: string;
+  strategistName: string;
+  que: boolean;
+  can: boolean;
+  ji: boolean;
+  /** 仅本人视角：当前可用的锦囊选项 */
+  options?: Array<{
+    pouch: 'que' | 'can' | 'ji';
+    pouchName: string;
+    choices: Array<{ choice: string; name: string; desc: string }>;
+  }>;
+}
 
 export interface PlayerView {
   pid: PlayerId;
@@ -54,6 +70,8 @@ export interface PlayerView {
   strategies: StrategyView[];
   usedNormalQi: boolean;
   usedBigQi: boolean;
+  pouches: PouchView[];
+  yulin: { active: boolean; remainingTurns: number };
 }
 
 export interface RoomStateView {
@@ -71,12 +89,16 @@ export interface RoomStateView {
   firstPlayerPid: PlayerId;
   /** 龟背阵保护方 pid（null=未激活） */
   guiBeiProtectorPid: PlayerId | null;
+  /** 龟背阵减攻层数 */
+  guiBeiLayers: number;
   /** 龟背阵剩余持续回合数 */
   guiBeiRemainingTurns: number;
   /** 双方实时战斗分（攻击命中累计） */
   combatScores: [number, number];
   deckCount: number;
   discardCount: number;
+  /** 桌面已打出卡牌数（回合结束清入弃牌堆） */
+  tableCount: number;
   /** 双方是否已结束行动 */
   actionEnded: [boolean, boolean];
   you: PlayerView;
@@ -148,6 +170,8 @@ export interface ClientEvents {
   /** 大厅：拉取所有桌摘要 */
   getTableList: (payload?: {}, ack?: (ok: boolean, data: TableSummary[]) => void) => void;
   playCard: (payload: { cardUid: string }, ack?: (ok: boolean, data: any) => void) => void;
+  /** 使用智者锦囊 */
+  usePouch: (payload: { strategistId: string; pouch: 'que' | 'can' | 'ji'; choice: string }, ack?: (ok: boolean, data: any) => void) => void;
   useBonus: (payload: { type: 'normal' | 'big' | 'burst' }, ack?: (ok: boolean, data: any) => void) => void;
   confirmDefend: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   giveUpEmergencyHeal: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
@@ -177,6 +201,7 @@ export interface ServerEvents {
       triggeredCharm: boolean;
     };
   }) => void;
+  eventPouchUsed: (data: { actorPid: PlayerId; message: string }) => void;
   eventDamage: (data: { actorPid?: PlayerId; message: string }) => void;
   eventBuffChange: (data: { actorPid: PlayerId; type: string; message: string }) => void;
   eventGameOver: (data: { winner: PlayerId | null; reason: string | null; detail: string | null }) => void;

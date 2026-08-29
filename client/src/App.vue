@@ -66,7 +66,10 @@
             :style="isGuest ? { cursor: 'not-allowed', opacity: '.5' } : { cursor: 'pointer' }"
             @click="onTopAvatarClick"
           >👤 {{ displayName }}</span>
-          <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="onLogout">退出登录</button>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <MusicButton />
+            <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="onLogout">退出登录</button>
+          </div>
         </div>
         <EntryScreen @select="onSelectMode" />
       </template>
@@ -112,6 +115,7 @@
             <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="toggleMute">
               {{ muted ? '🔇' : '🔊' }}
             </button>
+            <MusicButton />
           </div>
         </div>
 
@@ -261,6 +265,26 @@
       <div class="ultimate-text">绝杀</div>
     </div>
 
+    <!-- 锦囊使用过场动画:光圈轮转候选牌 → 停到所得牌 -->
+    <div class="pouch-overlay" v-if="pouchAnimating">
+      <div class="pouch-glow"></div>
+      <div class="pouch-text">🎒 锦囊妙计</div>
+      <div class="pouch-row">
+        <div
+          v-for="(c, i) in pouchAnimating.candidates"
+          :key="i"
+          class="pouch-candidate"
+          :class="{ lit: i === pouchAnimating.current, won: pouchAnimating.done && i === pouchAnimating.current }"
+        >{{ c }}</div>
+      </div>
+      <div
+        class="pouch-ring"
+        v-if="!pouchAnimating.done"
+        :style="{ left: ringLeft + '%' }"
+      ></div>
+      <div class="pouch-card-name" v-if="pouchAnimating.done">获得 · {{ pouchAnimating.cardName }}</div>
+    </div>
+
     <!-- 胜负过场动画 -->
     <div class="go-transition" v-if="state.gameOver && gameOverAnimating" :class="gameOverClass">
       <VictoryAnim v-if="gameOverClass === 'win'" />
@@ -345,13 +369,14 @@ import EntryScreen from './components/EntryScreen.vue';
 import AuthScreen from './components/AuthScreen.vue';
 import VictoryAnim from './components/VictoryAnim.vue';
 import DefeatAnim from './components/DefeatAnim.vue';
+import MusicButton from './components/MusicButton.vue';
 import { soundManager } from './audio/SoundManager';
 import {
   state, toastLogs, pushToast, isMyTurn, isAwaitingDefense, isEmergencyHealing,
   canEndTurn, canConfirmDefend, canGiveUpHeal, playedCards, gameMode,
   initStore, startSingle, startLan, exitToEntry,
   useBonus, confirmDefend, giveUpHeal, endAction, playCard, resetRoom,
-  ultimateAnimating, gameOverAnimating, settlement, recordSummary, fetchRecord, submitSettlement, viewingRecord, fetchRecordByPid,
+  ultimateAnimating, pouchAnimating, gameOverAnimating, settlement, recordSummary, fetchRecord, submitSettlement, viewingRecord, fetchRecordByPid,
 } from './store/gameStore';
 import { authed, authUser, logout, restoreAuth, isGuest, updateNickname } from './store/authStore';
 import type { CardView, CardCategory, PlayerId } from './types/protocol';
@@ -460,9 +485,17 @@ function onCardClick(c: CardView): void {
   }
 }
 
+// ===== 锦囊轮盘动画：光圈位置（等宽候选牌，取第 i 张中心）=====
+const ringLeft = computed(() => {
+  const a = pouchAnimating.value;
+  if (!a) return 50;
+  const n = a.candidates.length;
+  if (n <= 1) return 50;
+  return ((a.current + 0.5) / n) * 100;
+});
+
 // ===== 回合阶段显示 =====
-const roundText = computed(() => {
-  if (state.gameOver) return '对局结束';
+const roundText = computed(() => {  if (state.gameOver) return '对局结束';
   if (state.emergencyHealPid !== null) {
     return `紧急救血 · 玩家${state.emergencyHealPid + 1}`;
   }
@@ -612,9 +645,10 @@ watch(gameMode, (mode) => {
 onMounted(async () => {
   await restoreAuth();
   authReady.value = true;
-  // 首次用户交互时初始化音效（浏览器自动播放策略要求）
+  // 首次用户交互时初始化音效并启动背景音乐（浏览器自动播放策略要求）
   const initAudioOnce = () => {
     soundManager.init();
+    soundManager.startBgm();
     document.removeEventListener('click', initAudioOnce);
     document.removeEventListener('touchstart', initAudioOnce);
   };

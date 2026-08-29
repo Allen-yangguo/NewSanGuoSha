@@ -264,6 +264,112 @@ a { color: #8C4A40; }
   animation: ultText 2s ease-out forwards;
   z-index: 2;
 }
+
+/* ===== 锦囊使用过场动画（轮盘：光圈轮转候选牌 → 停到所得牌）===== */
+.pouch-overlay {
+  position: fixed; inset: 0; z-index: 9997;
+  background: radial-gradient(ellipse at center, rgba(40, 26, 8, 0.55) 0%, rgba(20, 12, 4, 0.9) 100%);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  overflow: hidden;
+  pointer-events: none;
+  animation: pouchFade 2.6s ease-out forwards;
+}
+.pouch-glow {
+  position: absolute; width: 70vmin; height: 70vmin; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 220, 120, 0.45) 0%, rgba(255, 190, 60, 0.15) 45%, transparent 70%);
+  animation: pouchGlow 2.6s ease-out forwards;
+}
+.pouch-text {
+  font-size: 30px; font-weight: 900; letter-spacing: 10px; color: #FFE9B0;
+  text-shadow: 0 0 14px #FFB62E, 0 2px 0 #7A4A00;
+  margin-bottom: 26px;
+  animation: pouchTextIn 0.5s ease-out forwards;
+  z-index: 2;
+}
+/* 候选牌行（等宽牌面） */
+.pouch-row {
+  position: relative;
+  display: flex; gap: 10px; justify-content: center;
+  padding: 6px 0 14px;
+  width: min(92vw, 640px);
+  z-index: 2;
+}
+.pouch-candidate {
+  flex: 0 0 104px;
+  height: 120px;
+  border-radius: 10px;
+  border: 2px solid #8A6D29;
+  background: linear-gradient(180deg, #F8EFDA 0%, #E8D5A8 100%);
+  color: #4B3B2A;
+  font-size: 15px; font-weight: 900;
+  display: flex; align-items: center; justify-content: center;
+  text-align: center;
+  padding: 6px;
+  box-shadow: 0 3px 0 #B5996A, 0 6px 14px rgba(0, 0, 0, 0.3);
+  opacity: 0.55;
+  transition: opacity 0.1s, transform 0.1s;
+}
+/* 光圈扫到的牌：点亮放大 */
+.pouch-candidate.lit {
+  opacity: 1;
+  transform: scale(1.12) translateY(-6px);
+  border-color: #FFD76A;
+  box-shadow: 0 0 18px rgba(255, 200, 80, 0.9), 0 3px 0 #B5996A;
+}
+/* 最终停到的牌：金色定格 */
+.pouch-candidate.won {
+  border-color: #FFC93C;
+  animation: pouchWon 0.5s cubic-bezier(.34, 1.56, .64, 1) forwards;
+}
+/* 移动光圈（纵向光柱） */
+.pouch-ring {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 118px;
+  transform: translateX(-50%);
+  background: linear-gradient(180deg, transparent 0%, rgba(255, 215, 100, 0.28) 15%, rgba(255, 225, 130, 0.5) 50%, rgba(255, 215, 100, 0.28) 85%, transparent 100%);
+  border-radius: 12px;
+  border: 2px solid rgba(255, 215, 100, 0.55);
+  box-shadow: 0 0 24px rgba(255, 200, 80, 0.6), inset 0 0 18px rgba(255, 215, 100, 0.35);
+  z-index: 1;
+  pointer-events: none;
+}
+/* 结果揭示 */
+.pouch-card-name {
+  margin-top: 16px;
+  padding: 10px 30px;
+  font-size: 28px; font-weight: 900; color: #4B2E00;
+  background: linear-gradient(180deg, #FFF3D0 0%, #F0D18A 100%);
+  border: 3px solid #B8860B; border-radius: 14px;
+  box-shadow: 0 0 26px rgba(255, 200, 80, 0.9), 0 4px 0 #8A5A00;
+  animation: pouchCard 0.5s cubic-bezier(.34, 1.56, .64, 1) forwards;
+  z-index: 3;
+}
+@keyframes pouchFade {
+  0% { opacity: 0; }
+  6% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes pouchGlow {
+  0% { transform: scale(0); opacity: 0; }
+  14% { opacity: 1; }
+  80% { transform: scale(1.5); opacity: 0.5; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+@keyframes pouchTextIn {
+  from { transform: translateY(-14px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes pouchWon {
+  0% { transform: scale(1.12) translateY(-6px); }
+  55% { transform: scale(1.35) translateY(-14px); }
+  100% { transform: scale(1.18) translateY(-8px); }
+}
+@keyframes pouchCard {
+  0% { transform: translateY(30px) scale(0.5); opacity: 0; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
 @keyframes ultFlash {
   0% { background: #000; }
   8% { background: #FFFFFF; }
@@ -453,6 +559,7 @@ a { color: #8C4A40; }
 
 /* 玩家面板 */
 .p-panel {
+  position: relative; /* 锦囊徽章绝对定位锚点 */
   display: grid;
   grid-template-columns: 56px 1fr auto;
   gap: 10px; align-items: center;

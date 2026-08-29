@@ -5,6 +5,7 @@
   "scripts": {
     "test:deck": "ts-node test/verify-deck.ts",
     "test:engine": "ts-node test/verify-engine.ts",
+    "test:v43": "ts-node test/verify-v43.ts",
     "build:web": "node scripts/build-web.js",
     "build:server": "tsc && node scripts/copy-pages.js",
     "build": "npm run build:server && cd client && npm install && npm run build",
@@ -14,7 +15,8 @@
     "dev:server": "ts-node server/server.ts"
   },
   "devDependencies": {
-    "esbuild": "^0.28.2"
+    "esbuild": "^0.28.2",
+    "socket.io-client": "^4.8.3"
   },
   "dependencies": {
     "@types/bcryptjs": "^2.4.6",

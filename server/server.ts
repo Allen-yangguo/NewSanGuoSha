@@ -34,6 +34,7 @@ import {
   TurnPhase,
   CardCategory,
   FormationType,
+  PouchType,
 } from '../assets/scripts/core/types';
 import { HP_MAX } from '../assets/scripts/core/BattleState';
 import { createAuthRouter } from './auth/routes';
@@ -176,6 +177,17 @@ interface PlayerView {
   strategies: StrategyView[];
   usedNormalQi: boolean;
   usedBigQi: boolean;
+  /** 智者锦囊标记（含本人可用的选项；对手视角仅显示标记有无） */
+  pouches: Array<{
+    strategistId: string;
+    strategistName: string;
+    que: boolean;
+    can: boolean;
+    ji: boolean;
+    options?: Array<{ pouch: string; pouchName: string; choices: Array<{ choice: string; name: string; desc: string }> }>;
+  }>;
+  /** 鱼鳞阵状态 */
+  yulin: { active: boolean; remainingTurns: number };
 }
 interface RoomStateView {
   roomId: string;
@@ -195,10 +207,13 @@ interface RoomStateView {
   emergencyHealPid: PlayerId | null;
   firstPlayerPid: PlayerId;
   guiBeiProtectorPid: PlayerId | null;
+  guiBeiLayers: number;
   guiBeiRemainingTurns: number;
   combatScores: [number, number];
   deckCount: number;
   discardCount: number;
+  /** 桌面已打出卡牌数（回合结束清入弃牌堆） */
+  tableCount: number;
   /** 双方是否已结束行动（UI 用来显示「结束行动」按钮状态） */
   actionEnded: [boolean, boolean];
   you: PlayerView;
@@ -221,6 +236,8 @@ function buildPlayerView(
   const slotInfo = table.players[slot];
   const p: PlayerState = table.engine.state.players[slotInfo.pid];
   const isMe = slotInfo.pid === mePid;
+  const strategistNames: Record<string, string> = { zhuge: '诸葛亮', zhouyu: '周瑜', simayi: '司马懿' };
+  const myOptions = isMe ? table.engine.getPouchOptions(slotInfo.pid) : [];
   return {
     pid: slotInfo.pid,
     name: slotInfo.name,
@@ -243,6 +260,26 @@ function buildPlayerView(
     strategies: p.strategies.map(strategyToView),
     usedNormalQi: p.usedNormalQi,
     usedBigQi: p.usedBigQi,
+    pouches: Object.keys(p.pouches).map(sid => {
+      const st = p.pouches[sid];
+      const base = {
+        strategistId: sid,
+        strategistName: strategistNames[sid] || sid,
+        que: !!st.que,
+        can: !!st.can,
+        ji: !!st.ji,
+      };
+      if (isMe) {
+        return {
+          ...base,
+          options: myOptions
+            .filter(o => o.strategistId === sid)
+            .map(o => ({ pouch: o.pouch, pouchName: o.pouchName, choices: o.choices })),
+        };
+      }
+      return base;
+    }),
+    yulin: { active: p.yulin.active, remainingTurns: p.yulin.remainingTurns },
   };
 }
 
@@ -281,10 +318,12 @@ function buildRoomState(socketId: string, table: Table): RoomStateView {
     emergencyHealPid: table.engine.emergencyHealPending,
     firstPlayerPid: table.engine.state.firstPlayer,
     guiBeiProtectorPid: table.engine.guiBeiProtector,
+    guiBeiLayers: table.engine.guiBeiLayers,
     guiBeiRemainingTurns: table.engine.guiBeiRemainingTurns,
     combatScores: [...table.engine.scoreTracker.combatScore] as [number, number],
     deckCount: table.engine.state.deck.length,
     discardCount: table.engine.state.discard.length,
+    tableCount: table.engine.state.table.length,
     actionEnded: [...table.engine.state.actionEnded] as [boolean, boolean],
     you: me,
     opponent,
@@ -721,6 +760,33 @@ io.on('connection', (socket: Socket) => {
     tryAutoEndAction(io, table);
 
     broadcastRoomState(io, table);
+  });
+
+  // ---------- 使用智者锦囊 ----------
+  // payload: { strategistId: 'zhuge'|'zhouyu'|'simayi', pouch: 'que'|'can'|'ji', choice: '选项id' }
+  socket.on('usePouch', (payload: { strategistId?: string; pouch?: string; choice?: string }, ack) => {
+    const cb: (ok: boolean, data: any) => void = typeof ack === 'function' ? ack : () => {};
+    const table = getTable(socket);
+    if (!table) return cb(false, { error: '未入桌' });
+    const pid = getPidBySocket(socket);
+    if (pid === null) return cb(false, { error: '未入桌' });
+    if (!table.started) return cb(false, { error: '对局未开始' });
+    const pouch = payload?.pouch;
+    if (!pouch || (pouch !== 'que' && pouch !== 'can' && pouch !== 'ji')) {
+      return cb(false, { error: '参数错误' });
+    }
+    const r = table.engine.usePouch(
+      pid,
+      String(payload?.strategistId || ''),
+      pouch as PouchType,
+      String(payload?.choice || ''),
+    );
+    if (!r.ok) return cb(false, { error: r.message });
+    if (r.pouchUsed) {
+      broadcastEvent(io, table, 'eventPouchUsed', { actorPid: pid, message: r.message });
+    }
+    broadcastRoomState(io, table);
+    cb(true, { message: r.message, cardName: r.card?.def?.name });
   });
 
   // ---------- 使用补气按钮 ----------

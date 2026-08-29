@@ -33,7 +33,6 @@ export interface PlayedCard {
   attackPower?: number;
 }
 export const playedCards = reactive<PlayedCard[]>([]);
-const MAX_PLAYED = 8;
 
 // ===== 局末结算 & 战绩 =====
 export const settlement = ref<any>(null);
@@ -49,6 +48,41 @@ function triggerUltimateAnim(): void {
   if (ultimateTimer) clearTimeout(ultimateTimer);
   ultimateAnimating.value = true;
   ultimateTimer = setTimeout(() => { ultimateAnimating.value = false; }, 2000);
+}
+
+/** 锦囊使用过场动画（轮盘：光圈轮转候选牌 → 停到所得牌） */
+export const pouchAnimating = ref<{
+  candidates: string[];
+  cardName: string;
+  current: number;
+  done: boolean;
+} | null>(null);
+let pouchTimer: ReturnType<typeof setTimeout> | null = null;
+let pouchStepTimer: ReturnType<typeof setTimeout> | null = null;
+function triggerPouchAnim(candidates: string[], cardName: string): void {
+  if (pouchTimer) clearTimeout(pouchTimer);
+  if (pouchStepTimer) clearTimeout(pouchStepTimer);
+  const list = candidates.length > 0 ? candidates : [cardName];
+  const target = Math.max(0, list.indexOf(cardName));
+  // 轮转 2 整圈后停到目标牌
+  const total = 2 * list.length + target;
+  pouchAnimating.value = { candidates: list, cardName, current: 0, done: false };
+  let step = 0;
+  const tick = () => {
+    if (!pouchAnimating.value) return;
+    if (step >= total) {
+      pouchAnimating.value.current = target;
+      pouchAnimating.value.done = true;
+      pouchTimer = setTimeout(() => { pouchAnimating.value = null; }, 1600);
+      return;
+    }
+    pouchAnimating.value.current = step % list.length;
+    step += 1;
+    // 缓出：越到后面越慢
+    const progress = step / total;
+    pouchStepTimer = setTimeout(tick, 70 + 620 * progress * progress);
+  };
+  pouchStepTimer = setTimeout(tick, 140);
 }
 
 /** 胜负过场动画（触发后 3s 自动关闭，给旗帜/跪地动画完整播放时间） */
@@ -90,10 +124,7 @@ function addPlayedCard(card: any, actorPid: number, attackPower?: number): void 
     desc: '',
   };
   playedCards.push({ key: cv.uid, card: cv, isMine, actorPid, attackPower });
-  // 满 8 张 → 只保留最后一张，清空前 7 张
-  if (playedCards.length > MAX_PLAYED) {
-    playedCards.splice(0, playedCards.length - 1);
-  }
+  // v5.0：不再「满8清空」——本回合所有打出卡保留，由牌桌区固定高度折叠展示，回合结束统一清空
 }
 
 function clearPlayedCards(): void {
@@ -145,10 +176,12 @@ export const state = reactive<RoomStateView & LobbyState>({
   emergencyHealPid: null,
   firstPlayerPid: 0,
   guiBeiProtectorPid: null,
+  guiBeiLayers: 0,
   guiBeiRemainingTurns: 0,
   combatScores: [0, 0],
   deckCount: 0,
   discardCount: 0,
+  tableCount: 0,
   actionEnded: [false, false],
   you: emptyPlayer(0, '我'),
   opponent: emptyPlayer(1, '对手'),
@@ -168,6 +201,7 @@ function emptyPlayer(pid: PlayerId, name: string): any {
     pid, name, hp: 8, hpMax: 12, qi: 6,
     handCount: 0, handCards: [], strategies: [],
     usedNormalQi: false, usedBigQi: false,
+    pouches: [], yulin: { active: false, remainingTurns: 0 },
   };
 }
 
@@ -455,6 +489,27 @@ export async function useBonus(type: 'normal' | 'big' | 'burst'): Promise<{ ok: 
   }
   const { ok, data } = await emit('useBonus', { type });
   if (!ok) pushToast('❌ ' + (data?.error || '使用失败'));
+  return { ok, msg: data?.message || data?.error || '' };
+}
+
+export async function usePouch(
+  strategistId: string,
+  pouch: 'que' | 'can' | 'ji',
+  choice: string,
+  candidates: string[] = [],
+): Promise<{ ok: boolean; msg: string }> {
+  let cardName = '';
+  if (gameMode.value === 'single' && localEngine) {
+    const r = localEngine.usePouch(strategistId, pouch, choice);
+    if (!r.ok) pushToast('❌ ' + r.message);
+    cardName = (r as any).card?.def?.name || '';
+    if (cardName) triggerPouchAnim(candidates, cardName);
+    return { ok: r.ok, msg: r.message };
+  }
+  const { ok, data } = await emit('usePouch', { strategistId, pouch, choice });
+  if (!ok) pushToast('❌ ' + (data?.error || '使用失败'));
+  cardName = data?.cardName || '';
+  if (cardName) triggerPouchAnim(candidates, cardName);
   return { ok, msg: data?.message || data?.error || '' };
 }
 

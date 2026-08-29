@@ -18,11 +18,11 @@ function main(): void {
   console.log('=== 引擎初始化测试 ===');
   const engine = new GameEngine();
   engine.initGame();
-  assert(engine.state.deck.length === 104 - 10, `牌库剩余 94 张（104-10 初始手牌）实际 ${engine.state.deck.length}`);
+  assert(engine.state.deck.length === 132 - 10, `牌库剩余 122 张（132-10 初始手牌）实际 ${engine.state.deck.length}`);
   assert(engine.state.players[0].hand.length === 5, '玩家1 初始 5 张手牌');
   assert(engine.state.players[1].hand.length === 5, '玩家2 初始 5 张手牌');
-  assert(engine.state.players[0].hp === 6, '玩家1 初始血量 6');
-  assert(engine.state.players[1].hp === 6, '玩家2 初始血量 6');
+  assert(engine.state.players[0].hp === 8, '玩家1 初始血量 8');
+  assert(engine.state.players[1].hp === 8, '玩家2 初始血量 8');
   assert(engine.state.players[0].qi === 6, '玩家1 初始气量 6');
   assert(engine.state.players[1].qi === 6, '玩家2 初始气量 6');
   assert(engine.turn.phase === TurnPhase.Action, '初始阶段为行动');

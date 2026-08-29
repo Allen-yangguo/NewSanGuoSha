@@ -50,6 +50,17 @@ export class SoundManager {
   muted: boolean = false;
   private initialized: boolean = false;
 
+  // ===== 背景音乐（优先播放 /sfx/bgm.wav，失败回退 Web Audio 合成循环）=====
+  private bgmOn: boolean = true;
+  private bgmAudio: HTMLAudioElement | null = null;
+  private bgmAudioOn: boolean = false;
+  private bgmSynthTimer: ReturnType<typeof setInterval> | null = null;
+  private bgmNextBeat: number = 0;
+  /** 每秒节拍数（72 BPM） */
+  private static BGM_BPM = 72;
+  /** 循环长度（拍） */
+  private static BGM_LOOP_BEATS = 16;
+
   init(): void {
     if (this.initialized) return;
     this.initialized = true;
@@ -62,6 +73,11 @@ export class SoundManager {
     for (const type of Object.keys(SFX_FILES) as SfxType[]) {
       this.preload(type);
     }
+    // 读取用户 BGM 开关偏好（默认开）
+    try {
+      const saved = localStorage.getItem('sgsBgm');
+      this.bgmOn = saved === null ? true : saved === '1';
+    } catch { this.bgmOn = true; }
   }
 
   private preload(type: SfxType): void {
@@ -116,6 +132,173 @@ export class SoundManager {
     for (const audio of this.audioCache.values()) {
       audio.volume = this.volume;
     }
+  }
+
+  // ============ 背景音乐 ============
+
+  /** BGM 是否开启 */
+  isBgmOn(): boolean {
+    return this.bgmOn;
+  }
+
+  /** 开启/关闭 BGM，返回新状态 */
+  toggleBgm(): boolean {
+    this.bgmOn = !this.bgmOn;
+    try { localStorage.setItem('sgsBgm', this.bgmOn ? '1' : '0'); } catch {}
+    if (this.bgmOn) this.startBgm();
+    else this.stopBgm();
+    return this.bgmOn;
+  }
+
+  /** 启动 BGM（优先真实音频文件，失败回退合成循环；需用户手势后调用） */
+  startBgm(): void {
+    if (!this.bgmOn) return;
+    // 尝试真实音频文件（mp3 优先，wav 兜底）
+    if (!this.bgmAudio) {
+      this.tryLoadBgmFile(0);
+    } else if (!this.bgmAudioOn) {
+      this.bgmAudioOn = true;
+      this.bgmAudio.volume = Math.max(0.2, this.volume * 0.55);
+      this.bgmAudio.play().catch(() => {});
+    }
+  }
+
+  /** BGM 音频文件候选列表 */
+  private static BGM_FILES = ['/sfx/bgm.mp3', '/sfx/bgm.wav'];
+
+  /** 依次尝试加载 BGM 文件；全部失败则回退合成循环 */
+  private tryLoadBgmFile(index: number): void {
+    if (index >= SoundManager.BGM_FILES.length) {
+      this.startBgmSynth();
+      return;
+    }
+    const audio = new Audio(SoundManager.BGM_FILES[index]);
+    audio.loop = true;
+    audio.volume = Math.max(0.2, this.volume * 0.55);
+    audio.addEventListener('error', () => {
+      this.bgmAudio = null;
+      this.tryLoadBgmFile(index + 1);
+    }, { once: true });
+    audio.addEventListener('canplaythrough', () => {
+      this.bgmAudio = audio;
+      this.bgmAudioOn = true;
+      audio.volume = Math.max(0.2, this.volume * 0.55);
+      audio.play().catch(() => {});
+    }, { once: true });
+    audio.load();
+  }
+
+  /** 停止 BGM（同时停文件与合成） */
+  stopBgm(): void {
+    if (this.bgmAudio) {
+      this.bgmAudio.pause();
+      this.bgmAudioOn = false;
+    }
+    this.stopBgmSynth();
+  }
+
+  /** 合成循环调度器启动 */
+  private startBgmSynth(): void {
+    if (!this.bgmOn) return;
+    if (!this.audioContext) return;
+    if (this.bgmSynthTimer !== null) return;
+    const ctx = this.audioContext;
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+    this.bgmNextBeat = 0;
+    const beatSec = 60 / SoundManager.BGM_BPM;
+    const lookahead = 0.7;
+    const tick = () => {
+      if (!this.audioContext) return;
+      const ctx = this.audioContext;
+      const now = ctx.currentTime;
+      while (this.bgmNextBeat * beatSec < now + lookahead) {
+        this.scheduleBgmBeat(this.bgmNextBeat, now);
+        this.bgmNextBeat += 1;
+      }
+    };
+    tick();
+    this.bgmSynthTimer = setInterval(tick, 200);
+  }
+
+  /** 停止合成循环 */
+  private stopBgmSynth(): void {
+    if (this.bgmSynthTimer !== null) {
+      clearInterval(this.bgmSynthTimer);
+      this.bgmSynthTimer = null;
+    }
+  }
+
+  /**
+   * 调度一个循环拍上的音符（古风五声音阶 D 宫：D E F# A B）
+   * 每 4 拍一个低音铺底，主旋律为舒缓琶音
+   */
+  private scheduleBgmBeat(beat: number, now: number): void {
+    const ctx = this.audioContext;
+    if (!ctx) return;
+    const beatSec = 60 / SoundManager.BGM_BPM;
+    const t = now + beat * beatSec;
+    const loop = SoundManager.BGM_LOOP_BEATS;
+    const b = beat % loop;
+    const vol = this.volume * 0.28;
+
+    // 低音铺底：D3 / A2 交替（每 4 拍）
+    const bassNotes: Array<[number, number]> = [[0, 146.83], [4, 110.0], [8, 146.83], [12, 110.0]];
+    for (const [bb, freq] of bassNotes) {
+      if (b === bb) {
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(vol * 0.7, t + 0.03);
+        g.gain.setValueAtTime(vol * 0.7, t + beatSec * 2.6);
+        g.gain.exponentialRampToValueAtTime(0.001, t + beatSec * 3.6);
+        osc.connect(g).connect(ctx.destination);
+        osc.start(t); osc.stop(t + beatSec * 3.7);
+      }
+    }
+
+    // 主旋律（五声音阶 pluck）：[拍, 频率, 时值(拍)]
+    const D4 = 293.66, E4 = 329.63, Fs4 = 369.99, A4 = 440.0, B4 = 493.88, D5 = 587.33, E5 = 659.25;
+    const melody: Array<[number, number, number]> = [
+      [0, D4, 1], [1, Fs4, 1], [2, A4, 2],
+      [4, B4, 1], [5, A4, 1], [6, Fs4, 2],
+      [8, D5, 2], [10, B4, 1], [11, A4, 1],
+      [12, Fs4, 1.5], [13.5, E4, 1], [14.5, D4, 1.5],
+    ];
+    for (const [mb, freq, dur] of melody) {
+      if (Math.abs(b - mb) < 0.001) {
+        this.playPluck(freq, t, dur * beatSec, vol * 0.8);
+        // 高八度点缀
+        if (dur >= 1.5) this.playPluck(freq * 2, t + 0.01, dur * beatSec * 0.8, vol * 0.25);
+      }
+    }
+  }
+
+  /** 古筝/拨弦音色：三角波 + 快速衰减 + 轻微泛音 */
+  private playPluck(freq: number, t: number, dur: number, vol: number): void {
+    const ctx = this.audioContext;
+    if (!ctx) return;
+    const osc = ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.value = freq;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, t + Math.max(0.4, dur));
+    osc.connect(g).connect(ctx.destination);
+    osc.start(t); osc.stop(t + Math.max(0.45, dur + 0.1));
+
+    // 第二泛音层（八度）
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'sine';
+    osc2.frequency.value = freq * 2;
+    const g2 = ctx.createGain();
+    g2.gain.setValueAtTime(0.0001, t);
+    g2.gain.linearRampToValueAtTime(vol * 0.4, t + 0.01);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + Math.max(0.3, dur * 0.7));
+    osc2.connect(g2).connect(ctx.destination);
+    osc2.start(t); osc2.stop(t + Math.max(0.35, dur * 0.8));
   }
 
   // ============ Web Audio API 合成兜底 ============

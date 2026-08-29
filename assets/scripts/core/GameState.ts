@@ -21,6 +21,8 @@ export class GameState {
   players: [PlayerState, PlayerState];
   /** 公共牌库（剩余可抽） */
   deck: CardInstance[] = [];
+  /** 桌面（本回合已打出的实体卡牌，回合结束统一进弃牌堆） */
+  table: CardInstance[] = [];
   /** 弃牌堆 */
   discard: CardInstance[] = [];
   /** 当前回合数（从 1 开始） */
@@ -64,6 +66,8 @@ export class GameState {
       usedBigQi: false,
       hpLossQiThisTurn: 0,
       overkill: 0,
+      pouches: {},        // 智者锦囊标记（打出智者牌后按智者 id 记录）
+      yulin: { active: false, remainingTurns: 0 },
     };
   }
 
@@ -77,13 +81,14 @@ export class GameState {
     return { uid: this.genUid(def.id), def };
   }
 
-  /** 初始化牌库：107 张彻底洗牌 */
+  /** 初始化牌库：140 张彻底洗牌 */
   initDeck(): void {
     const defs = buildFullDeck();
     assertDeckSize(defs); // 数量自检
     const instances = defs.map(d => this.toInstance(d));
     this.shuffleInPlace(instances);
     this.deck = instances;
+    this.table = [];
     this.discard = [];
   }
 
@@ -214,6 +219,7 @@ export class GameState {
       firstPlayer: this.firstPlayer,
       activePlayer: this.activePlayer,
       deckLeft: this.deck.length,
+      tableCount: this.table.length,
       discardCount: this.discard.length,
       zhuiFengActive: this.zhuiFengActive,
       deckDepleted: this.deckDepleted,
@@ -229,6 +235,8 @@ export class GameState {
           layers: s.layers,
           remainingTurns: s.remainingTurns,
         })),
+        pouches: p.pouches,
+        yulin: { active: p.yulin.active, remainingTurns: p.yulin.remainingTurns },
         usedNormalQi: p.usedNormalQi,
         usedBigQi: p.usedBigQi,
         hpLossQiThisTurn: p.hpLossQiThisTurn,

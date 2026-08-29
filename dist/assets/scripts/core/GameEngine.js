@@ -14,6 +14,10 @@ const types_1 = require("./types");
 const GameState_1 = require("./GameState");
 const TurnMachine_1 = require("./TurnMachine");
 const BattleState_1 = require("./BattleState");
+const cards_1 = require("./cards");
+/** 急锦囊丹药选项 id */
+const DAN_HUANHUN = 'huanhun_dan';
+const DAN_JUELIAO = 'jueliao_dan';
 class GameEngine {
     constructor() {
         this.turn = new TurnMachine_1.TurnMachine();
@@ -27,8 +31,10 @@ class GameEngine {
         this.usedArmorCards = [];
         /** 当前防御响应中已使用的八卦阵卡（用于弃牌） */
         this.usedBaguaCards = [];
-        /** 龟背阵保护方（该玩家受到武将攻击时伤害 -1，持续3回合） */
+        /** 龟背阵保护方（该玩家受到武将攻击时伤害 -层数，持续3回合） */
         this.guiBeiProtector = null;
+        /** 龟背阵减攻层数（1层=-1；坚壁清野直接施加2层） */
+        this.guiBeiLayers = 0;
         /** 龟背阵剩余持续回合数（>0 时生效，每回合 -1，归 0 清除） */
         this.guiBeiRemainingTurns = 0;
         /** 紧急救血等待中（普通攻击打至 0 血，可补血续命） */
@@ -143,13 +149,38 @@ class GameEngine {
             return true;
         });
     }
-    /** 从手牌中移除一张卡并放入弃牌堆 */
+    /** 从手牌中移除一张卡并放到桌面（回合结束统一进弃牌堆） */
     consumeCard(actor, card) {
         const p = this.state.players[actor];
         const idx = p.hand.findIndex(c => c.uid === card.uid);
         if (idx >= 0)
             p.hand.splice(idx, 1);
-        this.state.discard.push(card);
+        this.state.table.push(card);
+    }
+    /** 龟背阵总减攻层数（保护方生效层数） */
+    guiBeiTotalLayers() {
+        return this.guiBeiProtector !== null ? this.guiBeiLayers : 0;
+    }
+    /**
+     * 锦囊产出选卡：有指定 choice 则精确/前缀匹配；否则（choice 为空）系统随机给出一张
+     */
+    pickPouchDef(defs, choice) {
+        if (choice) {
+            const hit = defs.find(d => d.id === choice || d.id.startsWith(choice + '_'));
+            if (hit)
+                return hit;
+        }
+        if (defs.length > 0)
+            return defs[Math.floor(Math.random() * defs.length)];
+        return undefined;
+    }
+    /** 玩家是否持有任意急锦囊 */
+    hasJiPouch(player) {
+        return Object.keys(player.pouches).some(k => player.pouches[k].ji);
+    }
+    /** 玩家手牌中是否持有绝疗丹（唯一可应对绝杀致死的丹药） */
+    hasJueLiaoDanInHand(player) {
+        return player.hand.some(c => c.def.category === types_1.CardCategory.FunctionHp && c.def.subtype === types_1.HpTier.JueLiaoDan);
     }
     // ============ 卡牌效果实现 ============
     /** 武将攻击：消耗气量 → 计算伤害 → 进入受击响应 */
@@ -170,12 +201,13 @@ class GameEngine {
         const baseDamage = (0, BattleState_1.calcGeneralDamage)(card.def, attacker);
         const stateBonus = (0, BattleState_1.getStateBonus)(attacker);
         const stratLayers = (0, BattleState_1.totalStrategyLayers)(attacker);
-        // 龟背阵：若防御方有龟背保护，武将攻击伤害 -1（最低 0），绝杀不受影响
+        // 龟背阵：若防御方有龟背保护，武将攻击伤害 -层数（最低 0），绝杀不受影响
         const defenderId = (1 - actor);
         let damage = baseDamage;
         if (this.guiBeiProtector === defenderId) {
-            damage = Math.max(0, damage - 1);
-            this.log(`龟背阵生效 · 武将攻击伤害 -1 → ${damage}`);
+            const reduce = this.guiBeiTotalLayers();
+            damage = Math.max(0, damage - reduce);
+            this.log(`龟背阵生效 · 武将攻击伤害 -${reduce} → ${damage}`);
         }
         this.log(`玩家${actor + 1} 打出【${card.def.name}】耗气 ${cost} → 伤害 ${damage} ` +
             `(基础${card.def.value}+兵法${stratLayers}+状态${stateBonus})`);
@@ -213,11 +245,44 @@ class GameEngine {
             return { ok: false, message: '已打出八卦阵，不可再用防具' };
         if (this.pendingAttack?.defender !== actor)
             return { ok: false, message: '非防御方' };
-        this.defensePool += card.def.value;
+        const p = this.state.players[actor];
+        let def = card.def.value;
+        // 鱼鳞阵：己方防具防御 +1
+        if (p.yulin.active) {
+            def += 1;
+            this.log(`鱼鳞阵生效 · 防具防御 +1`);
+        }
+        this.defensePool += def;
         this.usedArmorCards.push(card);
         this.consumeCard(actor, card);
-        this.log(`玩家${actor + 1} 打出【${card.def.name}】防 ${card.def.value} · 累计防御 ${this.defensePool}`);
+        this.log(`玩家${actor + 1} 打出【${card.def.name}】防 ${def} · 累计防御 ${this.defensePool}`);
         return { ok: true, message: `防具累计防御 ${this.defensePool}` };
+    }
+    /** 大乔（限定魅惑）：打出直接清空敌方当前气量（不改上限、不清状态标记） */
+    playDaQiao(card, actor) {
+        const enemy = this.state.players[(1 - actor)];
+        const before = enemy.qi;
+        enemy.qi = 0;
+        this.consumeCard(actor, card);
+        this.log(`玩家${actor + 1} 打出【大乔】· 清空敌方气量 ${before} → 0`);
+        return { ok: true, message: `大乔 · 敌方气量清空（${before} → 0）` };
+    }
+    /** 孙尚香（限定魅惑）：偷取敌方【急】锦囊标记；敌方无急锦囊则出牌完全无效 */
+    playSunShangXiang(card, actor) {
+        const me = this.state.players[actor];
+        const enemy = this.state.players[(1 - actor)];
+        const targetKey = Object.keys(enemy.pouches).find(k => enemy.pouches[k].ji);
+        this.consumeCard(actor, card);
+        if (!targetKey) {
+            this.log(`玩家${actor + 1} 打出【孙尚香】· 敌方无急锦囊 · 出牌完全无效`);
+            return { ok: false, message: '孙尚香 · 敌方无急锦囊 · 出牌完全无效' };
+        }
+        enemy.pouches[targetKey].ji = false;
+        if (!me.pouches[targetKey])
+            me.pouches[targetKey] = { que: false, can: false, ji: false };
+        me.pouches[targetKey].ji = true;
+        this.log(`玩家${actor + 1} 打出【孙尚香】· 偷取敌方急锦囊`);
+        return { ok: true, message: '孙尚香 · 成功偷取敌方【急】锦囊' };
     }
     /** 功能-补气：+气量 */
     playFunctionQi(card, actor) {
@@ -238,6 +303,15 @@ class GameEngine {
         const p = this.state.players[actor];
         // 紧急救血阶段：补血需先抵消 overkill
         if (this.emergencyHealPending === actor) {
+            // 丹药（还魂丹/绝疗丹）：直接保 1 血，无视溢出
+            if (card.def.subtype === types_1.HpTier.HuanHunDan || card.def.subtype === types_1.HpTier.JueLiaoDan) {
+                this.consumeCard(actor, card);
+                p.hp = 1;
+                p.overkill = 0;
+                this.emergencyHealPending = null;
+                this.log(`玩家${actor + 1} 使用【${card.def.name}】· 保 1 血 · 紧急救血成功`);
+                return { ok: true, message: `${card.def.name} · 保 1 血`, triggeredHeal: true };
+            }
             const overkill = p.overkill;
             const effective = card.def.value - overkill;
             this.consumeCard(actor, card);
@@ -369,20 +443,60 @@ class GameEngine {
             return { ok: true, message: '追风阵生效 · 下回合仍为先手' };
         }
         if (type === types_1.FormationType.GuiBei) {
-            // 龟背阵：自身回合打出，持续3回合对方武将攻击 -1
+            // 龟背阵：自身回合打出，持续3回合对方武将攻击 -1（可叠加）
             if (!this.canAct(actor))
                 return { ok: false, message: '非己方行动阶段' };
             if (this.turn.isAwaitingDefense())
                 return { ok: false, message: '当前正在等待防御响应' };
             this.guiBeiProtector = actor;
+            this.guiBeiLayers += 1;
             this.guiBeiRemainingTurns = 3;
-            this.log(`玩家${actor + 1} 打出【龟背阵】· 持续3回合对方武将攻击 -1 · 绝杀不受影响`);
+            this.log(`玩家${actor + 1} 打出【龟背阵】· 减攻 +1 层（共 ${this.guiBeiLayers} 层）· 持续3回合 · 绝杀不受影响`);
             this.consumeCard(actor, card);
-            return { ok: true, message: '龟背阵生效 · 持续3回合对方武将攻击 -1' };
+            return { ok: true, message: `龟背阵生效 · 对方武将攻击 -${this.guiBeiLayers} · 持续3回合` };
+        }
+        if (type === types_1.FormationType.JianBiQingYe) {
+            // 坚壁清野：直接施加 2 层龟背阵，对方武将攻击 -2，持续3回合（仅锦囊产出）
+            if (!this.canAct(actor))
+                return { ok: false, message: '非己方行动阶段' };
+            if (this.turn.isAwaitingDefense())
+                return { ok: false, message: '当前正在等待防御响应' };
+            this.guiBeiProtector = actor;
+            this.guiBeiLayers += 2;
+            this.guiBeiRemainingTurns = 3;
+            this.log(`玩家${actor + 1} 打出【坚壁清野】· 减攻 +2 层（共 ${this.guiBeiLayers} 层）· 持续3回合 · 绝杀不受影响`);
+            this.consumeCard(actor, card);
+            return { ok: true, message: `坚壁清野生效 · 对方武将攻击 -${this.guiBeiLayers} · 持续3回合` };
+        }
+        if (type === types_1.FormationType.YuLin) {
+            // 鱼鳞阵：己方防具防御 +1，持续3回合
+            if (!this.canAct(actor))
+                return { ok: false, message: '非己方行动阶段' };
+            if (this.turn.isAwaitingDefense())
+                return { ok: false, message: '当前正在等待防御响应' };
+            const p = this.state.players[actor];
+            p.yulin = { active: true, remainingTurns: 3 };
+            this.log(`玩家${actor + 1} 打出【鱼鳞阵】· 己方防具防御 +1 · 持续3回合`);
+            this.consumeCard(actor, card);
+            return { ok: true, message: '鱼鳞阵生效 · 己方防具防御 +1 · 持续3回合' };
+        }
+        if (type === types_1.FormationType.QiMenDunJia || type === types_1.FormationType.HuoShaoLianYing) {
+            // 奇门遁甲 / 火烧连营：兵法 +3，持续3回合（仅锦囊产出）
+            if (!this.canAct(actor))
+                return { ok: false, message: '非己方行动阶段' };
+            if (this.turn.isAwaitingDefense())
+                return { ok: false, message: '当前正在等待防御响应' };
+            const p = this.state.players[actor];
+            const sType = type === types_1.FormationType.QiMenDunJia ? types_1.StrategyType.QiMenDunJia : types_1.StrategyType.HuoShaoLianYing;
+            (0, BattleState_1.addStrategy)(p, card.uid, sType, 3);
+            const total = (0, BattleState_1.totalStrategyLayers)(p);
+            this.log(`玩家${actor + 1} 打出【${card.def.name}】· 兵法 +3 层 · 持续3回合 · 总层数 ${total}`);
+            this.consumeCard(actor, card);
+            return { ok: true, message: `兵法 +3 层 · 总层数 ${total}` };
         }
         return { ok: false, message: '未知阵法' };
     }
-    /** 魅惑：对方兵法层 -1，若为 0 则对方 -3 气 */
+    /** 魅惑：貂蝉/小乔削兵法；大乔清敌方气；孙尚香偷敌方急锦囊 */
     playCharm(card, actor) {
         if (!this.canAct(actor))
             return { ok: false, message: '非己方行动阶段' };
@@ -390,6 +504,11 @@ class GameEngine {
             return { ok: false, message: '非魅惑牌' };
         if (this.turn.isAwaitingDefense())
             return { ok: false, message: '当前正在等待防御响应' };
+        // 大乔 / 孙尚香：限定魅惑（仅锦囊产出，打出触发特殊效果）
+        if (card.def.id === 'daqiao')
+            return this.playDaQiao(card, actor);
+        if (card.def.id === 'sunshangxiang')
+            return this.playSunShangXiang(card, actor);
         const targetId = (1 - actor);
         const target = this.state.players[targetId];
         const totalLayers = (0, BattleState_1.totalStrategyLayers)(target);
@@ -405,6 +524,117 @@ class GameEngine {
             this.log(`玩家${actor + 1} 打出【${card.def.name}】· 对方兵法为 0 · 对方 -3 气 → ${target.qi}`);
             return { ok: true, message: `对方兵法为 0 · 对方 -3 气`, triggeredCharm: true, triggeredQi: true };
         }
+    }
+    /** 打出智者牌：0 耗气，获得对应锦囊标记（使用才消耗，跨回合保留） */
+    playStrategist(card, actor) {
+        if (!this.canAct(actor))
+            return { ok: false, message: '非己方行动阶段' };
+        if (card.def.category !== types_1.CardCategory.Strategist)
+            return { ok: false, message: '非智者牌' };
+        if (this.turn.isAwaitingDefense())
+            return { ok: false, message: '当前正在等待防御响应' };
+        const sid = card.def.id;
+        const grants = GameEngine.STRATEGIST_POUCHES[sid];
+        if (!grants)
+            return { ok: false, message: '未知智者' };
+        const p = this.state.players[actor];
+        const cur = p.pouches[sid] || { que: false, can: false, ji: false };
+        if (grants.que)
+            cur.que = true;
+        if (grants.can)
+            cur.can = true;
+        if (grants.ji)
+            cur.ji = true;
+        p.pouches[sid] = cur;
+        this.consumeCard(actor, card);
+        this.log(`玩家${actor + 1} 打出【${card.def.name}】· 获得锦囊` +
+            `${cur.que ? '缺' : ''}${cur.can ? '残' : ''}${cur.ji ? '急' : ''}（使用才消耗）`);
+        return { ok: true, message: `获得${card.def.name}锦囊标记（缺/残/急）` };
+    }
+    /**
+     * 使用锦囊：产出的卡牌为实体手牌
+     * @param actor 玩家
+     * @param strategistId 智者牌 id（zhuge/zhouyu/simayi）
+     * @param pouch 锦囊种类 que/can/ji
+     * @param choice 选项 id；传空字符串则系统随机给出一张
+     */
+    usePouch(actor, strategistId, pouch, choice) {
+        if (this.state.gameOver)
+            return { ok: false, message: '游戏已结束' };
+        const p = this.state.players[actor];
+        const st = p.pouches[strategistId];
+        if (!st || !st[pouch])
+            return { ok: false, message: '没有可用的该锦囊标记' };
+        if (pouch === types_1.PouchType.Ji) {
+            // 急锦囊：击杀急救结算阶段可用（普通攻击致死时手动触发）
+            if (this.emergencyHealPending !== actor)
+                return { ok: false, message: '仅击杀急救结算阶段可用' };
+            const defs = (0, cards_1.getPouchChoices)(strategistId, types_1.PouchType.Ji);
+            const def = this.pickPouchDef(defs, choice);
+            if (!def)
+                return { ok: false, message: '无效的丹药选择' };
+            // 普通攻击致死：还魂丹/绝疗丹均可保 1 血 → 丹药实体卡入手牌
+            const inst = this.state.toInstance(def);
+            p.hand.push(inst);
+            st.ji = false;
+            this.log(`玩家${actor + 1} 使用急锦囊 · 随机获得【${def.name}】实体手牌`);
+            return { ok: true, message: `获得【${def.name}】`, pouchUsed: true, card: inst };
+        }
+        // 缺/残锦囊：行动阶段使用；缺锦囊缺血(hp=2)或残血(hp=1)均可用
+        if (!this.canAct(actor))
+            return { ok: false, message: '非己方行动阶段' };
+        if (this.turn.isAwaitingDefense())
+            return { ok: false, message: '当前正在等待防御响应' };
+        if (pouch === types_1.PouchType.Que && p.hp !== 2 && p.hp !== 1)
+            return { ok: false, message: '缺锦囊需缺血(血量=2)或残血(血量=1)才可用' };
+        if (pouch === types_1.PouchType.Can && p.hp !== 1)
+            return { ok: false, message: '残锦囊需残血状态（血量=1）才可用' };
+        const defs = (0, cards_1.getPouchChoices)(strategistId, pouch);
+        const def = this.pickPouchDef(defs, choice);
+        if (!def)
+            return { ok: false, message: '无效的选择' };
+        // 锦囊产出的卡牌均为实体手牌（大乔/孙尚香等特殊武将也是先入手牌，打出时再触发效果）
+        const inst = this.state.toInstance(def);
+        p.hand.push(inst);
+        st[pouch] = false;
+        const pouchName = pouch === types_1.PouchType.Que ? '缺锦囊' : '残锦囊';
+        this.log(`玩家${actor + 1} 使用${pouchName} · 随机获得【${def.name}】实体手牌`);
+        return { ok: true, message: `获得【${def.name}】`, pouchUsed: true, card: inst };
+    }
+    /**
+     * 获取玩家当前可用的锦囊选项（UI 展示用）
+     */
+    getPouchOptions(playerId) {
+        const p = this.state.players[playerId];
+        const out = [];
+        const names = { zhuge: '诸葛亮', zhouyu: '周瑜', simayi: '司马懿' };
+        const pouchNames = { que: '缺锦囊', can: '残锦囊', ji: '急锦囊' };
+        for (const sid of Object.keys(p.pouches)) {
+            const st = p.pouches[sid];
+            if (!st)
+                continue;
+            const pouches = [];
+            // 缺锦囊：缺血(hp=2)或残血(hp=1)可用
+            if (st.que && (p.hp === 2 || p.hp === 1))
+                pouches.push(types_1.PouchType.Que);
+            if (st.can && p.hp === 1)
+                pouches.push(types_1.PouchType.Can);
+            if (st.ji && this.emergencyHealPending === playerId)
+                pouches.push(types_1.PouchType.Ji);
+            for (const pouch of pouches) {
+                const defs = (0, cards_1.getPouchChoices)(sid, pouch);
+                if (defs.length === 0)
+                    continue;
+                out.push({
+                    strategistId: sid,
+                    strategistName: names[sid] || sid,
+                    pouch,
+                    pouchName: pouchNames[pouch] || pouch,
+                    choices: defs.map(d => ({ choice: d.id, name: d.name, desc: d.desc })),
+                });
+            }
+        }
+        return out;
     }
     // ============ 防御响应 ============
     /** 防御方主动结束防御响应（不再出防具/八卦阵），进入伤害结算 */
@@ -542,18 +772,24 @@ class GameEngine {
         if (target.hp <= 0) {
             const overkill = amount - before;
             if (opts.source === 'ultimate') {
-                // 绝杀击杀：直接判负
+                // 绝杀击杀：默认不可急救；唯一应对手段是急锦囊 50% 抽到绝疗丹，或手牌已有绝疗丹
+                if (this.trySaveFromUltimate(targetId)) {
+                    return; // 已保命
+                }
                 this.log(`玩家${targetId + 1} 被绝杀击杀 · 不可急救`);
                 this.state.checkGameOver();
             }
             else {
-                // 普通攻击打至 0 血：检查能否通过补血救活
+                // 普通攻击打至 0 血：检查能否通过补血/丹药/急锦囊救活
                 const totalHeal = this.totalHealInHand(targetId);
-                if (totalHeal > overkill) {
+                const hasDan = this.hasJueLiaoDanInHand(target) || this.hasHuanHunDanInHand(target);
+                const canUseJi = this.hasJiPouch(target);
+                if (totalHeal > overkill || hasDan || canUseJi) {
                     // 有救 → 进入紧急救血
                     target.overkill = overkill;
                     this.emergencyHealPending = targetId;
-                    this.log(`玩家${targetId + 1} 被打至 0 血 · 溢出 ${overkill} · 可救血（手牌补血 ${totalHeal}）`);
+                    this.log(`玩家${targetId + 1} 被打至 0 血 · 溢出 ${overkill} · 可救血` +
+                        `${canUseJi ? '（有急锦囊）' : ''}${hasDan ? '（有丹药）' : ''}`);
                 }
                 else {
                     // 无救 → 直接判负
@@ -562,6 +798,48 @@ class GameEngine {
                 }
             }
         }
+    }
+    /** 手牌是否持有还魂丹 */
+    hasHuanHunDanInHand(player) {
+        return player.hand.some(c => c.def.category === types_1.CardCategory.FunctionHp && c.def.subtype === types_1.HpTier.HuanHunDan);
+    }
+    /**
+     * 绝杀致死时的唯一自救：急锦囊 50% 抽到绝疗丹活下来（抽到还魂丹直接死亡）；
+     * 若手牌已有绝疗丹也可直接使用保命。
+     * @returns true = 已保命（hp=1），false = 未能自救（正常判负）
+     */
+    trySaveFromUltimate(targetId) {
+        const target = this.state.players[targetId];
+        // 手牌已有绝疗丹：直接使用保命
+        if (this.hasJueLiaoDanInHand(target)) {
+            const idx = target.hand.findIndex(c => c.def.category === types_1.CardCategory.FunctionHp && c.def.subtype === types_1.HpTier.JueLiaoDan);
+            if (idx >= 0) {
+                const dan = target.hand.splice(idx, 1)[0];
+                this.state.table.push(dan);
+                target.hp = 1;
+                target.overkill = 0;
+                this.log(`玩家${targetId + 1} 使用手牌【绝疗丹】· 绝杀下保 1 血`);
+                return true;
+            }
+        }
+        // 急锦囊：50% 抽到绝疗丹
+        if (this.hasJiPouch(target)) {
+            const jiKey = Object.keys(target.pouches).find(k => target.pouches[k].ji);
+            if (jiKey) {
+                target.pouches[jiKey].ji = false;
+                const gotJueLiao = Math.random() < 0.5;
+                if (gotJueLiao) {
+                    target.hp = 1;
+                    target.overkill = 0;
+                    this.log(`玩家${targetId + 1} 触发急锦囊 · 抽中【绝疗丹】· 绝杀下保 1 血`);
+                }
+                else {
+                    this.log(`玩家${targetId + 1} 触发急锦囊 · 抽中【还魂丹】· 绝杀无效 · 死亡`);
+                }
+                return gotJueLiao;
+            }
+        }
+        return false;
     }
     /** 计算手牌中所有补血牌的总补血量 */
     totalHealInHand(pid) {
@@ -648,8 +926,14 @@ class GameEngine {
         this.endTurn();
         return { ok: true, message: '回合结束' };
     }
-    /** 完整回合结束流程：终局结算 → 补牌 → 互换先手 → 下一回合 */
+    /** 完整回合结束流程：清桌 → 终局结算 → 补牌 → 互换先手 → 下一回合 */
     endTurn() {
+        // 0. 回合结束：桌面所有已打出实体卡牌统一进弃牌堆（手牌保留；状态标记跨回合保留）
+        if (this.state.table.length > 0) {
+            this.state.discard.push(...this.state.table);
+            this.log(`回合结束 · 桌面清牌 ${this.state.table.length} 张 → 弃牌堆`);
+            this.state.table = [];
+        }
         // 1. 回合终局结算
         this.turn.phase = types_1.TurnPhase.Settle;
         const qiRecovery = this.state.roundCount % 2 === 0; // 每 2 回合补一次气
@@ -657,14 +941,23 @@ class GameEngine {
             // 全局回气：每 2 回合双方各 +1
             if (qiRecovery)
                 p.qi += 1;
-            // 兵法倒计时 -1
+            // 兵法倒计时 -1（状态标记跨回合保留，仅按回合计时衰减）
             (0, BattleState_1.tickStrategies)(p);
+            // 鱼鳞阵倒计时 -1
+            if (p.yulin.active) {
+                p.yulin.remainingTurns -= 1;
+                if (p.yulin.remainingTurns <= 0) {
+                    p.yulin = { active: false, remainingTurns: 0 };
+                    this.log(`玩家${p.id + 1} 鱼鳞阵到期消失`);
+                }
+            }
         }
         // 龟背阵效果倒计时 -1，归 0 清除
         if (this.guiBeiRemainingTurns > 0) {
             this.guiBeiRemainingTurns -= 1;
             if (this.guiBeiRemainingTurns === 0) {
                 this.guiBeiProtector = null;
+                this.guiBeiLayers = 0;
                 this.log(`龟背阵效果到期消失`);
             }
         }
@@ -704,4 +997,11 @@ class GameEngine {
     }
 }
 exports.GameEngine = GameEngine;
+// ============ 智者牌 & 锦囊 ============
+/** 智者牌可授予的锦囊组合 */
+GameEngine.STRATEGIST_POUCHES = {
+    zhuge: { que: true, can: true, ji: true }, // 诸葛亮：缺/残/急
+    zhouyu: { que: true, can: true, ji: false }, // 周瑜：缺/残
+    simayi: { que: true, can: true, ji: false }, // 司马懿：缺/残
+};
 //# sourceMappingURL=GameEngine.js.map

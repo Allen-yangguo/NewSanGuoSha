@@ -42,6 +42,10 @@ const handleFormation = (engine, card, actor) => {
 const handleCharm = (engine, card, actor) => {
     return engine.playCharm(card, actor);
 };
+/** 智者：打出获得锦囊状态标记（缺/残/急） */
+const handleStrategist = (engine, card, actor) => {
+    return engine.playStrategist(card, actor);
+};
 /** 分发表：按卡牌类别路由到对应处理函数 */
 const dispatchTable = {
     [types_1.CardCategory.General]: handleGeneral,
@@ -52,6 +56,7 @@ const dispatchTable = {
     [types_1.CardCategory.Ultimate]: handleUltimate,
     [types_1.CardCategory.Formation]: handleFormation,
     [types_1.CardCategory.Charm]: handleCharm,
+    [types_1.CardCategory.Strategist]: handleStrategist,
 };
 /**
  * 卡牌效果总入口

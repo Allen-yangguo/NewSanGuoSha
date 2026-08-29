@@ -135,6 +135,8 @@ function buildPlayerView(slot, mePid, table) {
     const slotInfo = table.players[slot];
     const p = table.engine.state.players[slotInfo.pid];
     const isMe = slotInfo.pid === mePid;
+    const strategistNames = { zhuge: '诸葛亮', zhouyu: '周瑜', simayi: '司马懿' };
+    const myOptions = isMe ? table.engine.getPouchOptions(slotInfo.pid) : [];
     return {
         pid: slotInfo.pid,
         name: slotInfo.name,
@@ -157,6 +159,26 @@ function buildPlayerView(slot, mePid, table) {
         strategies: p.strategies.map(strategyToView),
         usedNormalQi: p.usedNormalQi,
         usedBigQi: p.usedBigQi,
+        pouches: Object.keys(p.pouches).map(sid => {
+            const st = p.pouches[sid];
+            const base = {
+                strategistId: sid,
+                strategistName: strategistNames[sid] || sid,
+                que: !!st.que,
+                can: !!st.can,
+                ji: !!st.ji,
+            };
+            if (isMe) {
+                return {
+                    ...base,
+                    options: myOptions
+                        .filter(o => o.strategistId === sid)
+                        .map(o => ({ pouch: o.pouch, pouchName: o.pouchName, choices: o.choices })),
+                };
+            }
+            return base;
+        }),
+        yulin: { active: p.yulin.active, remainingTurns: p.yulin.remainingTurns },
     };
 }
 /**
@@ -191,10 +213,12 @@ function buildRoomState(socketId, table) {
         emergencyHealPid: table.engine.emergencyHealPending,
         firstPlayerPid: table.engine.state.firstPlayer,
         guiBeiProtectorPid: table.engine.guiBeiProtector,
+        guiBeiLayers: table.engine.guiBeiLayers,
         guiBeiRemainingTurns: table.engine.guiBeiRemainingTurns,
         combatScores: [...table.engine.scoreTracker.combatScore],
         deckCount: table.engine.state.deck.length,
         discardCount: table.engine.state.discard.length,
+        tableCount: table.engine.state.table.length,
         actionEnded: [...table.engine.state.actionEnded],
         you: me,
         opponent,
@@ -633,6 +657,31 @@ io.on('connection', (socket) => {
         // 行动阶段：无牌可出时自动结束行动
         tryAutoEndAction(io, table);
         broadcastRoomState(io, table);
+    });
+    // ---------- 使用智者锦囊 ----------
+    // payload: { strategistId: 'zhuge'|'zhouyu'|'simayi', pouch: 'que'|'can'|'ji', choice: '选项id' }
+    socket.on('usePouch', (payload, ack) => {
+        const cb = typeof ack === 'function' ? ack : () => { };
+        const table = getTable(socket);
+        if (!table)
+            return cb(false, { error: '未入桌' });
+        const pid = getPidBySocket(socket);
+        if (pid === null)
+            return cb(false, { error: '未入桌' });
+        if (!table.started)
+            return cb(false, { error: '对局未开始' });
+        const pouch = payload?.pouch;
+        if (!pouch || (pouch !== 'que' && pouch !== 'can' && pouch !== 'ji')) {
+            return cb(false, { error: '参数错误' });
+        }
+        const r = table.engine.usePouch(pid, String(payload?.strategistId || ''), pouch, String(payload?.choice || ''));
+        if (!r.ok)
+            return cb(false, { error: r.message });
+        if (r.pouchUsed) {
+            broadcastEvent(io, table, 'eventPouchUsed', { actorPid: pid, message: r.message });
+        }
+        broadcastRoomState(io, table);
+        cb(true, { message: r.message, cardName: r.card?.def?.name });
     });
     // ---------- 使用补气按钮 ----------
     // payload: { type: 'normal' | 'big' | 'burst' }

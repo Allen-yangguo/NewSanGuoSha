@@ -16,6 +16,7 @@ export enum CardCategory {
   Ultimate = 'ultimate',          // 绝杀神兵
   Formation = 'formation',        // 阵法战术
   Charm = 'charm',                // 魅惑类（削弱对方兵法/气）
+  Strategist = 'strategist',      // 智者牌（诸葛亮/周瑜/司马懿，打出获得锦囊标记）
 }
 
 /** 武将等级（用于生成卡牌数据，非运行时状态） */
@@ -25,6 +26,7 @@ export enum GeneralTier {
   SecondRate = 'second_rate',// 二流大将 攻3耗3
   FiveTiger = 'five_tiger',  // 五虎上将 攻4耗4
   LuBu = 'lubu',             // 吕布 攻5基础耗4
+  Limited = 'limited',       // 限定武将（仅智者锦囊产出：攻6耗5 / 攻7耗5 / 攻8耗5）
 }
 
 /** 防具等级 */
@@ -33,6 +35,10 @@ export enum ArmorTier {
   Bronze = 'bronze',     // 铜甲 防2
   Iron = 'iron',          // 铁甲 防3
   Steel = 'steel',        // 钢甲 防4
+  WoodShield = 'wood_shield',     // 木盾 防1
+  BronzeShield = 'bronze_shield', // 铜盾 防2
+  IronShield = 'iron_shield',     // 铁盾 防3
+  SteelShield = 'steel_shield',   // 钢盾 防4
 }
 
 /** 补气牌等级 */
@@ -47,12 +53,16 @@ export enum HpTier {
   Wine = 'wine',          // 杜康药酒 回1血
   Medicine = 'medicine',  // 华佗汤药 回2血
   Bandage = 'bandage',    // 随军伤药 回3血
+  HuanHunDan = 'dan_huanhun',  // 还魂丹（仅救普通攻击致死，保 1 血）
+  JueLiaoDan = 'dan_jueliao',  // 绝疗丹（普通攻击与绝杀均可保 1 血）
 }
 
 /** 兵法种类 */
 export enum StrategyType {
   MengDe = 'mengde',  // 孟德新书 +1层
   SunZi = 'sunzi',    // 孙子兵法 +2层
+  QiMenDunJia = 'qimen',       // 奇门遁甲 +3层（仅诸葛亮缺锦囊产出）
+  HuoShaoLianYing = 'huoshao', // 火烧连营 +3层（仅周瑜缺锦囊产出）
 }
 
 /** 绝杀神兵种类 */
@@ -68,13 +78,33 @@ export enum UltimateType {
 export enum FormationType {
   BaGua = 'bagua',   // 八卦阵（受击反弹）
   ZhuiFeng = 'zhuifeng', // 追风阵（篡改先手）
-  GuiBei = 'guibei', // 龟背阵（本回合对方武将攻击-1）
+  GuiBei = 'guibei', // 龟背阵（本回合对方武将攻击-1，持续3回合）
+  QiMenDunJia = 'qimen',       // 奇门遁甲（兵法+3，持续3回合，仅锦囊产出）
+  HuoShaoLianYing = 'huoshao', // 火烧连营（兵法+3，持续3回合，仅锦囊产出）
+  YuLin = 'yulin',             // 鱼鳞阵（己方防具防御+1，持续3回合）
+  JianBiQingYe = 'jianbi',     // 坚壁清野（施加2层龟背阵减攻-2，持续3回合，仅锦囊产出）
+}
+
+/** 智者种类 */
+export enum StrategistType {
+  ZhugeLiang = 'zhuge', // 诸葛亮（缺/残/急三锦囊）
+  ZhouYu = 'zhouyu',    // 周瑜（缺/残两锦囊）
+  SimaYi = 'simayi',    // 司马懿（缺/残两锦囊）
+}
+
+/** 锦囊种类 */
+export enum PouchType {
+  Que = 'que', // 缺锦囊（缺血 hp=2 可用）
+  Can = 'can', // 残锦囊（残血 hp=1 可用）
+  Ji = 'ji',   // 急锦囊（击杀急救结算阶段可用）
 }
 
 /** 魅惑种类 */
 export enum CharmType {
   Diaochan = 'diaochan',   // 貂蝉
   Xiaoqiao = 'xiaoqiao',   // 小乔
+  DaQiao = 'daqiao',       // 大乔（限定：打出清空敌方气量，仅锦囊产出）
+  SunShangXiang = 'sunshangxiang', // 孙尚香（限定：偷敌方急锦囊，仅锦囊产出）
 }
 
 /** 卡牌静态定义（牌库模板） */
@@ -86,7 +116,7 @@ export interface CardDef {
   /** 卡牌大类 */
   category: CardCategory;
   /** 子类标识 */
-  subtype?: GeneralTier | ArmorTier | QiTier | HpTier | StrategyType | UltimateType | FormationType | CharmType;
+  subtype?: GeneralTier | ArmorTier | QiTier | HpTier | StrategyType | UltimateType | FormationType | CharmType | StrategistType;
   /** 核心数值（攻击/防御/补气/补血/层数/真实伤害） */
   value: number;
   /** 耗气量（武将牌专用；功能牌打出 0 消耗，但补气值≠0） */
@@ -115,6 +145,13 @@ export interface StrategyRecord {
   remainingTurns: number;
 }
 
+/** 锦囊标记状态（按智者牌分别持有） */
+export interface PouchState {
+  que: boolean; // 缺锦囊
+  can: boolean; // 残锦囊
+  ji: boolean;  // 急锦囊
+}
+
 /** 玩家状态 */
 export interface PlayerState {
   /** 玩家 ID */
@@ -135,6 +172,10 @@ export interface PlayerState {
   hpLossQiThisTurn: number;
   /** 紧急救血阶段的溢出伤害（补血量需 > overkill 才能救活） */
   overkill: number;
+  /** 智者锦囊标记：strategistId -> 缺/残/急（使用才消耗，跨回合保留） */
+  pouches: Record<string, PouchState>;
+  /** 鱼鳞阵状态（己方防具防御 +1，持续 3 回合） */
+  yulin: { active: boolean; remainingTurns: number };
 }
 
 /** 回合阶段 */

@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 /**
- * 牌库数量与配置自检
+ * 牌库数量与配置自检（v4.3：140 张初始牌库 + 15 张限定卡）
  * 运行：npm run test:deck
  */
 const cards_1 = require("../assets/scripts/core/cards");
@@ -9,16 +9,18 @@ const types_1 = require("../assets/scripts/core/types");
 function main() {
     const deck = (0, cards_1.buildFullDeck)();
     (0, cards_1.assertDeckSize)(deck);
-    console.log(`✓ 牌库总数：${deck.length} 张（预期 104）`);
+    console.log(`✓ 牌库总数：${deck.length} 张（预期 132）`);
     // 分类统计
     const counter = {
-        [types_1.CardCategory.General]: { count: 0, expected: 38, names: new Set() },
-        [types_1.CardCategory.Armor]: { count: 0, expected: 23, names: new Set() },
+        [types_1.CardCategory.General]: { count: 0, expected: 44, names: new Set() },
+        [types_1.CardCategory.Armor]: { count: 0, expected: 38, names: new Set() },
         [types_1.CardCategory.FunctionQi]: { count: 0, expected: 12, names: new Set() },
         [types_1.CardCategory.FunctionHp]: { count: 0, expected: 19, names: new Set() },
         [types_1.CardCategory.Strategy]: { count: 0, expected: 3, names: new Set() },
         [types_1.CardCategory.Ultimate]: { count: 0, expected: 5, names: new Set() },
-        [types_1.CardCategory.Formation]: { count: 0, expected: 4, names: new Set() },
+        [types_1.CardCategory.Formation]: { count: 0, expected: 6, names: new Set() },
+        [types_1.CardCategory.Charm]: { count: 0, expected: 2, names: new Set() },
+        [types_1.CardCategory.Strategist]: { count: 0, expected: 3, names: new Set() },
     };
     for (const c of deck) {
         counter[c.category].count++;
@@ -38,12 +40,36 @@ function main() {
     const totalAtk = generals.reduce((s, c) => s + c.value, 0);
     const totalCost = generals.reduce((s, c) => s + c.cost, 0);
     console.log(`\n=== 武将统计 ===`);
-    console.log(`✓ 全武将基础总攻击：${totalAtk}（预期 81）`);
-    console.log(`✓ 全武将基础总耗气：${totalCost}（预期 80）`);
-    // 防具总防御
+    console.log(`✓ 全武将基础总攻击：${totalAtk}（预期 102）`);
+    console.log(`✓ 全武将基础总耗气：${totalCost}（预期 101）`);
+    // 一流/二流/盾系列点名
+    const names = new Set(generals.map(g => g.name));
+    const firstRate = ['许褚', '典韦', '徐晃'];
+    const secondRate = ['颜良', '文丑', '张辽', '华雄', '庞德'];
+    for (const n of firstRate) {
+        const ok = names.has(n);
+        if (!ok)
+            allOk = false;
+        console.log(`${ok ? '✓' : '✗'} 一流武将 ${n}（攻4耗4）`);
+    }
+    for (const n of secondRate) {
+        const ok = names.has(n);
+        if (!ok)
+            allOk = false;
+        console.log(`${ok ? '✓' : '✗'} 二流武将 ${n}（攻3耗3）`);
+    }
+    // 盾系列防具
+    const shieldNames = ['木盾', '铜盾', '铁盾', '钢盾'];
+    for (const n of shieldNames) {
+        const ok = deck.some(c => c.category === types_1.CardCategory.Armor && c.name === n);
+        if (!ok)
+            allOk = false;
+        console.log(`${ok ? '✓' : '✗'} 盾系列 ${n}`);
+    }
+    // 防具总防御（甲42 + 盾35）
     const armors = deck.filter(c => c.category === types_1.CardCategory.Armor);
     const totalDef = armors.reduce((s, c) => s + c.value, 0);
-    console.log(`✓ 全防具总防御值：${totalDef}（预期 46）`);
+    console.log(`✓ 全防具总防御值：${totalDef}（预期 77）`);
     // 补气总量
     const qiCards = deck.filter(c => c.category === types_1.CardCategory.FunctionQi);
     const totalQi = qiCards.reduce((s, c) => s + c.value, 0);
@@ -56,6 +82,39 @@ function main() {
     const ults = deck.filter(c => c.category === types_1.CardCategory.Ultimate);
     const totalUlt = ults.reduce((s, c) => s + c.value, 0);
     console.log(`✓ 绝杀总穿透伤害：${totalUlt}（预期 6）`);
+    // 智者牌
+    const strategists = deck.filter(c => c.category === types_1.CardCategory.Strategist);
+    console.log(`✓ 智者牌：${strategists.map(s => s.name).join('、')}（预期 3 张）`);
+    // 限定卡：15 张（不在初始牌库）
+    const limited = (0, cards_1.buildLimitedCards)();
+    console.log(`✓ 限定产出卡：${limited.length} 张（预期 15）`);
+    const limitedNames = limited.map(c => c.name);
+    console.log(`  限定卡名单：${[...new Set(limitedNames)].join('、')}`);
+    // 限定卡必须不在初始牌库
+    const deckIds = new Set(deck.map(d => d.id));
+    for (const l of limited) {
+        if (deckIds.has(l.id)) {
+            allOk = false;
+            console.log(`✗ 限定卡 ${l.id} 不应出现在初始牌库`);
+        }
+    }
+    // 锦囊产出表完整性
+    const pouchChecks = [
+        [types_1.StrategistType.ZhugeLiang, types_1.PouchType.Que, 3],
+        [types_1.StrategistType.ZhugeLiang, types_1.PouchType.Can, 5],
+        [types_1.StrategistType.ZhugeLiang, types_1.PouchType.Ji, 2],
+        [types_1.StrategistType.ZhouYu, types_1.PouchType.Que, 2],
+        [types_1.StrategistType.ZhouYu, types_1.PouchType.Can, 2],
+        [types_1.StrategistType.SimaYi, types_1.PouchType.Que, 2],
+        [types_1.StrategistType.SimaYi, types_1.PouchType.Can, 3],
+    ];
+    for (const [s, p, n] of pouchChecks) {
+        const defs = (0, cards_1.getPouchChoices)(s, p);
+        const ok = defs.length === n;
+        if (!ok)
+            allOk = false;
+        console.log(`${ok ? '✓' : '✗'} 锦囊产出 ${s}·${p}：${defs.length} 项（预期 ${n}）`);
+    }
     // ID 唯一性
     const ids = new Set();
     let dup = 0;
@@ -67,7 +126,7 @@ function main() {
         ids.add(c.id);
     }
     console.log(`\n✓ 卡牌 ID 唯一性：${dup === 0 ? '通过' : `${dup} 个重复`}`);
-    if (allOk && totalAtk === 81 && totalCost === 80 && totalDef === 46 && totalQi === 32 && totalHp === 31 && totalUlt === 6) {
+    if (allOk && totalAtk === 102 && totalCost === 101 && totalDef === 77 && totalQi === 32 && totalHp === 31 && totalUlt === 6) {
         console.log('\n🎉 全部对账通过，牌库配置正确！');
     }
     else {
