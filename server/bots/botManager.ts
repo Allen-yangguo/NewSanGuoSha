@@ -236,6 +236,10 @@ interface BotInstance {
   lobbyTimer: ReturnType<typeof setTimeout> | null;
   /** 对局内"思考"定时器(防抖:同一时刻只保留一个待执行决策) */
   thinkTimer: ReturnType<typeof setTimeout> | null;
+  /** 对局结束后「等真人再来一局」/ 对局终止后「等新真人」定时器 */
+  rematchTimer: ReturnType<typeof setTimeout> | null;
+  /** 最近 roomState 的 gameOver(区分「对局结束」与「对局进行中」) */
+  lastGameOver: boolean;
   gameOverHandled: boolean;
   /** 当日已完赛局数(每日 30 局上限) */
   gamesToday: number;
@@ -496,6 +500,7 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
   bot.lastAttackPower = 0;
   bot.gameOverHandled = false;
   bot.thinkTimer = null;
+  bot.lastGameOver = false;
 
   socket.on('connect', () => {
     if (socket.id) {
@@ -515,6 +520,7 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
   });
 
   socket.on('roomState', (room: any) => {
+    bot.lastGameOver = !!room?.gameOver;
     if (!room || room.gameOver) return;
     bot.myPid = room.yourPid ?? null;
     if (room.started) bot.state = 'playing';
@@ -543,6 +549,7 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
   socket.on('eventGameStart', () => {
     bot.state = 'playing';
     bot.lastAttackPower = 0;
+    if (bot.rematchTimer) { clearTimeout(bot.rematchTimer); bot.rematchTimer = null; }
   });
 
   socket.on('eventGameOver', () => {
@@ -565,10 +572,42 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
       });
       return;
     }
-    // 局后: 稍等重开(再来一局);失败则离桌回大厅
-    schedule(bot, () => {
+    // 对局结束: 主动请求「再来一局」(对手确认后重开;对手是机器人也会自动确认)
+    if (bot.rematchTimer) clearTimeout(bot.rematchTimer);
+    bot.rematchTimer = setTimeout(() => {
+      bot.rematchTimer = null;
+      emitAck(socket, 'resetRoom', {}).then((r) => {
+        if (r.ok && r.data?.waiting) {
+          // 等待对方确认 → 30 秒未确认 → 离桌回大厅
+          bot.rematchTimer = setTimeout(() => {
+            bot.rematchTimer = null;
+            emitAck(socket, 'standUp', {}).then(() => {
+              bot.state = 'idle';
+              bot.gameOverHandled = false;
+              lobbyLoop(bot);
+            });
+          }, 30000).unref?.();
+        } else if (!r.ok) {
+          // 重开失败(对局未结束/对方已离开等) → 离桌回大厅
+          emitAck(socket, 'standUp', {}).then(() => {
+            bot.state = 'idle';
+            bot.gameOverHandled = false;
+            lobbyLoop(bot);
+          });
+        } else {
+          bot.gameOverHandled = false; // 双方确认 → 已重开
+        }
+      });
+    }, 6000);
+  });
+
+  // 真人请求「再来一局」→ 机器人确认(双方都确认后服务端重开)
+  socket.on('eventRematchRequest', () => {
+    if (bot.state === 'playing' && bot.lastGameOver) {
+      if (bot.rematchTimer) { clearTimeout(bot.rematchTimer); bot.rematchTimer = null; }
       emitAck(socket, 'resetRoom', {}).then((r) => {
         if (!r.ok) {
+          // 重开失败(对方已离开等) → 离桌回大厅
           emitAck(socket, 'standUp', {}).then(() => {
             bot.state = 'idle';
             bot.gameOverHandled = false;
@@ -578,23 +617,42 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
           bot.gameOverHandled = false;
         }
       });
-    }, 6000);
+    }
+  });
+
+  // 对局终止(真人强退/离线超时): 模拟玩家留在桌,重置为未准备,重新准备等真人
+  socket.on('eventGameAborted', () => {
+    if (bot.state !== 'playing') return;
+    bot.state = 'sitting';
+    bot.gameOverHandled = false;
+    bot.lastGameOver = false;
+    if (bot.rematchTimer) { clearTimeout(bot.rematchTimer); bot.rematchTimer = null; }
+    // 重新准备(真人入座后双方准备即开局);90 秒等不到真人 → 换桌
+    emitAck(socket, 'ready', {}).then(() => {
+      bot.rematchTimer = setTimeout(() => {
+        bot.rematchTimer = null;
+        emitAck(socket, 'standUp', {}).then(() => {
+          bot.state = 'idle';
+          lobbyLoop(bot);
+        });
+      }, 90000).unref?.();
+    });
   });
 
   socket.on('eventPlayerLeave', (d: any) => {
-    // 对局中对手离开 → 不跟"幽灵"继续打,稍后离桌回大厅
-    if (bot.state === 'playing' && d && typeof d.slot === 'string' && bot.myPid !== null) {
-      const oppSlot: 'p1' | 'p2' = bot.myPid === 0 ? 'p2' : 'p1';
-      if (d.slot === oppSlot) {
-        schedule(bot, () => {
-          emitAck(socket, 'standUp', {}).then(() => {
-            bot.state = 'idle';
-            bot.gameOverHandled = false;
-            lobbyLoop(bot);
-          });
-        }, 3000);
-      }
+    if (bot.state !== 'playing' || !d || typeof d.slot !== 'string' || bot.myPid === null) return;
+    const oppSlot: 'p1' | 'p2' = bot.myPid === 0 ? 'p2' : 'p1';
+    if (d.slot !== oppSlot) return;
+    if (bot.lastGameOver) {
+      // 对局结束后对手离开 → 等不来「再来一局」,离桌回大厅
+      if (bot.rematchTimer) { clearTimeout(bot.rematchTimer); bot.rematchTimer = null; }
+      emitAck(socket, 'standUp', {}).then(() => {
+        bot.state = 'idle';
+        bot.gameOverHandled = false;
+        lobbyLoop(bot);
+      });
     }
+    // 对局进行中对手断线 → 留在桌等真人回来(服务端保留对局与座位,90s 未回按强退终止)
   });
 
   socket.on('disconnect', (reason: string) => {
@@ -605,6 +663,8 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
     if (bot.lobbyTimer) clearTimeout(bot.lobbyTimer);
     if (bot.thinkTimer) clearTimeout(bot.thinkTimer);
     bot.thinkTimer = null;
+    if (bot.rematchTimer) clearTimeout(bot.rematchTimer);
+    bot.rematchTimer = null;
     console.log(`[BOT] ${bot.nickname} 离线 · 原因=${reason}`);
   });
 }
@@ -624,6 +684,8 @@ function sleepBot(bot: BotInstance): boolean {
   if (bot.lobbyTimer) clearTimeout(bot.lobbyTimer);
   if (bot.thinkTimer) clearTimeout(bot.thinkTimer);
   bot.thinkTimer = null;
+  if (bot.rematchTimer) clearTimeout(bot.rematchTimer);
+  bot.rematchTimer = null;
   try {
     bot.socket?.disconnect();
   } catch { /* ignore */ }
@@ -725,6 +787,8 @@ export function initBotSystem(serverUrl: string): void {
       lastAttackPower: 0,
       lobbyTimer: null,
       thinkTimer: null,
+      rematchTimer: null,
+      lastGameOver: false,
       gameOverHandled: false,
       gamesToday: 0,
       dayKey: beijingDate(),

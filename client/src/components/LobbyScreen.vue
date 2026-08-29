@@ -10,7 +10,10 @@
     <div class="lobby-box lobby-wide">
       <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
         <div class="lobby-title">新三国杀 · 大厅</div>
-        <button class="btn gold" style="font-size:13px;padding:6px 14px;" @click="openBoard">🏆 排行榜</button>
+        <div style="display:flex;gap:8px;">
+          <button v-if="rejoinInfo" class="btn primary" style="font-size:13px;padding:6px 14px;" @click="onRejoin">🔗 重新进入</button>
+          <button class="btn gold" style="font-size:13px;padding:6px 14px;" @click="openBoard">🏆 排行榜</button>
+        </div>
       </div>
       <div class="lobby-sub">
         10 桌并行 · 选空座坐下 · 双方准备即开局<br/>
@@ -167,7 +170,7 @@ import { computed, onMounted, ref } from 'vue';
 import {
   connecting, lastError, state,
   sitDown, standUp, ready, cancelReady, fetchTableList,
-  spectate,
+  spectate, rejoinInfo, rejoinGame,
 } from '../store/gameStore';
 import { fetchLeaderboard, type LeaderboardRow } from '../api/leaderboard';
 import type { Slot, TableSummary } from '../types/protocol';
@@ -193,6 +196,11 @@ function switchBoard(type: 'score' | 'active'): void {
   if (boardType.value === type) return;
   boardType.value = type;
   loadBoard();
+}
+
+/** 断线重连后重新进入未完成的对局 */
+async function onRejoin(): Promise<void> {
+  await rejoinGame();
 }
 
 async function onSpectate(tableId: number, pid: 0 | 1): Promise<void> {

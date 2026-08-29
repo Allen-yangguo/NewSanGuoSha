@@ -183,6 +183,8 @@ export interface ClientEvents {
   giveUpEmergencyHeal: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   useUltimatePouch: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   giveUpUltimateSave: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
+  /** 对局中主动离开(强退: 扣 50 分;模拟玩家留桌,桌重置为未准备) */
+  leaveGame: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   readyNextTurn: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   resetRoom: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   getRecord: (payload?: {}, ack?: (ok: boolean, data: RecordView | null) => void) => void;
@@ -216,6 +218,10 @@ export interface ServerEvents {
   eventGameSettlement: (data: GameSettlementView) => void;
   eventTurnEnd: (data: { nextRoundCount: number; nextFirstPid: PlayerId }) => void;
   eventUltimateSave: (data: { actorPid: PlayerId; saved: boolean; message: string }) => void;
+  /** 对局被终止(真人强退/离线超时): 桌重置为未准备 */
+  eventGameAborted: (data: { bySlot: Slot; byName: string }) => void;
+  /** 对方请求「再来一局」 */
+  eventRematchRequest: (data: { slot: Slot }) => void;
   eventPlayerLeave: (data: { slot: Slot }) => void;
   eventRoomReset: () => void;
 }

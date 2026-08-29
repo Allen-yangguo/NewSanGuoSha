@@ -37,6 +37,9 @@ export const playedCards = reactive<PlayedCard[]>([]);
 /** 是否处于旁观模式(不参与对局,仅观看某方视角) */
 export const spectating = ref(false);
 
+/** 断线重连后检测到的未完成对局(大厅显示「重新进入」按钮) */
+export const rejoinInfo = ref<{ tableId: number; slot: Slot } | null>(null);
+
 // ===== 局末结算 & 战绩 =====
 export const settlement = ref<any>(null);
 export const recordSummary = ref<any>(null);
@@ -287,17 +290,12 @@ export function initStore(): void {
     }
     // 拉取大厅桌列表
     fetchTableList();
-    // 若有保存的桌号+座位 → 尝试 reclaim 重连（服务端按身份恢复座位）
+    // 断线重连: 若之前在对局中(有保存的桌/座),不自动回桌,改为显示「重新进入」按钮让玩家决定
     const savedTable = typeof localStorage !== 'undefined' ? localStorage.getItem(TABLE_KEY) : null;
     const savedSlot = (typeof localStorage !== 'undefined' && localStorage.getItem(SLOT_KEY)) as Slot | null;
     if (savedTable && savedSlot) {
-      sitDown(Number(savedTable), savedSlot).catch(() => {
-        // 重连失败（桌已重置/座位被占）→ 清掉本地记录，留在大厅
-        if (typeof localStorage !== 'undefined') {
-          localStorage.removeItem(TABLE_KEY);
-          localStorage.removeItem(SLOT_KEY);
-        }
-      });
+      rejoinInfo.value = { tableId: Number(savedTable), slot: savedSlot };
+      pushToast('🔗 检测到未完成的对局 · 可重新进入');
     }
   });
   socket.on('disconnect', () => {
@@ -379,6 +377,12 @@ export function initStore(): void {
   });
   socket.on('eventPlayerLeave', (d) => {
     pushToast(`⚠ 玩家 ${d.slot === 'p1' ? '1' : '2'} 已断开连接`);
+  });
+  socket.on('eventGameAborted', (d) => {
+    pushToast(`⚠ 对局已终止（${d.byName} 离开）· 可继续准备`);
+  });
+  socket.on('eventRematchRequest', (d) => {
+    pushToast('⏳ 对方请求再来一局 · 点击「再来一局」确认');
   });
   socket.on('eventRoomReset', () => {
     pushToast('♻ 房间已重置，等待重新加入');
@@ -622,7 +626,7 @@ export async function endAction(): Promise<{ ok: boolean; msg: string }> {
   return { ok, msg: data?.message || data?.error || '' };
 }
 
-export async function resetRoom(): Promise<{ ok: boolean; msg: string }> {
+export async function resetRoom(): Promise<{ ok: boolean; msg: string; waiting?: boolean }> {
   settlement.value = null;
   if (gameMode.value === 'single' && localEngine) {
     localEngine.resetRoom();
@@ -630,7 +634,67 @@ export async function resetRoom(): Promise<{ ok: boolean; msg: string }> {
   }
   const { ok, data } = await emit('resetRoom', {});
   if (!ok) pushToast('❌ ' + (data?.error || '重置失败'));
+  else if (data?.waiting) pushToast('⏳ 已请求再来一局 · 等待对方确认');
+  return { ok, msg: data?.message || '', waiting: !!data?.waiting };
+}
+
+// ===== 离开对局 / 重新进入 =====
+
+/** 对局中主动离开(强退): 服务端扣 50 分、模拟玩家留桌、桌重置为未准备 */
+export async function leaveGame(): Promise<{ ok: boolean; msg: string }> {
+  if (gameMode.value === 'single') return { ok: true, msg: '' };
+  const { ok, data } = await emit('leaveGame', {});
+  if (!ok) pushToast('❌ ' + (data?.error || '操作失败'));
   return { ok, msg: data?.message || '' };
+}
+
+/** 对局中确认离开 → 释放座位并回到大厅(不退出联机) */
+export async function leaveGameToLobby(): Promise<void> {
+  if (gameMode.value === 'lan' && state.started) {
+    await leaveGame();
+  } else if (gameMode.value === 'lan') {
+    await standUp();
+  }
+  // 回到大厅态(保留联机)
+  spectating.value = false;
+  settlement.value = null;
+  state.started = false;
+  state.gameOver = false;
+  state.roomId = '';
+  state.yourSlot = null;
+  state.yourPid = null;
+  state.you = emptyPlayer(0, '我');
+  state.opponent = emptyPlayer(1, '对手');
+  state.defensePid = null;
+  state.emergencyHealPid = null;
+  state.ultimateSavePid = null;
+  state.actionEnded = [false, false];
+  state.gameOverDetail = null;
+  state.winner = null;
+  clearPlayedCards();
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem(TABLE_KEY);
+    localStorage.removeItem(SLOT_KEY);
+  }
+  fetchTableList();
+}
+
+/** 断线重连后重新进入未完成的对局 */
+export async function rejoinGame(): Promise<{ ok: boolean; msg: string }> {
+  const info = rejoinInfo.value;
+  if (!info) return { ok: false, msg: '无可重新进入的对局' };
+  const r = await sitDown(info.tableId, info.slot);
+  if (r.ok) {
+    rejoinInfo.value = null; // 成功后清除(对局状态由 roomState 接管)
+  } else {
+    // 桌已重置/座位被占 → 清本地记录
+    rejoinInfo.value = null;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(TABLE_KEY);
+      localStorage.removeItem(SLOT_KEY);
+    }
+  }
+  return r;
 }
 
 // ===== 旁观 =====
@@ -734,6 +798,8 @@ export async function sitDown(tableId: number, slot: Slot, name?: string): Promi
     state.myReady = false;
     // 防御性复位: 任何残留的旁观态都不应影响正常入座对局
     spectating.value = false;
+    // 入座成功: 清除「重新进入」提示
+    rejoinInfo.value = null;
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(TABLE_KEY, String(data.tableId));
       localStorage.setItem(SLOT_KEY, data.slot);

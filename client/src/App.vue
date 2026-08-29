@@ -412,7 +412,7 @@ import {
   canEndTurn, canConfirmDefend, canGiveUpHeal, playedCards, gameMode,
   initStore, startSingle, startLan, exitToEntry,
   useBonus, confirmDefend, giveUpHeal, endAction, playCard, resetRoom,
-  useUltimatePouch, giveUpUltimateSave,
+  useUltimatePouch, giveUpUltimateSave, leaveGameToLobby,
   ultimateAnimating, pouchAnimating, strategistAnimating, gameOverAnimating, settlement, recordSummary, fetchRecord, submitSettlement, viewingRecord, fetchRecordByPid,
   spectating, exitSpectate,
 } from './store/gameStore';
@@ -519,7 +519,12 @@ async function onSaveNickname(): Promise<void> {
 const showExitConfirm = ref(false);
 function confirmExit(): void {
   showExitConfirm.value = false;
-  exitToEntry();
+  if (gameMode.value === 'lan' && state.started && !state.gameOver) {
+    // 联机对局进行中离开 = 强退(服务端扣 50 分、模拟玩家留桌、桌重置未准备)
+    leaveGameToLobby();
+  } else {
+    exitToEntry();
+  }
 }
 
 // ===== 手牌选中状态（两次点击出牌）=====
