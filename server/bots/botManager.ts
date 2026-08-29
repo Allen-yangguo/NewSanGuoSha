@@ -219,6 +219,8 @@ interface BotInstance {
   myPid: number | null;
   lastAttackPower: number;
   lobbyTimer: ReturnType<typeof setTimeout> | null;
+  /** 对局内"思考"定时器(防抖:同一时刻只保留一个待执行决策) */
+  thinkTimer: ReturnType<typeof setTimeout> | null;
   gameOverHandled: boolean;
   /** 当日已完赛局数(每日 30 局上限) */
   gamesToday: number;
@@ -238,6 +240,23 @@ function emitAck(socket: Socket, evt: string, payload: any): Promise<{ ok: boole
       resolve({ ok: false, data: null });
     }
   });
+}
+
+/** 模拟真人思考延迟(ms): 出牌/防御/急救节奏不同(参考单机 AI 的「决策-延迟-再决策」结构,放缓以拟真) */
+function thinkDelay(kind: 'action' | 'defend' | 'emg'): number {
+  if (kind === 'action') return 1500 + Math.random() * 1500; // 出牌思考 1.5~3s
+  if (kind === 'defend') return 1000 + Math.random() * 1200; // 防御思考 1~2.2s
+  return 800 + Math.random() * 800;                          // 急救稍快 0.8~1.6s
+}
+
+/** 延迟执行一次决策(防抖: 同一时刻只保留最新一个决策,避免 roomState 连推叠加出牌) */
+function scheduleThink(bot: BotInstance, fn: () => void, ms: number): void {
+  if (bot.thinkTimer) clearTimeout(bot.thinkTimer);
+  bot.thinkTimer = setTimeout(() => {
+    bot.thinkTimer = null;
+    if (bot.socket && !bot.socket.disconnected) fn();
+  }, ms);
+  (bot.thinkTimer as any).unref?.();
 }
 
 function schedule(bot: BotInstance, fn: () => void, ms: number): void {
@@ -275,7 +294,8 @@ function lobbyLoop(bot: BotInstance): void {
       return a !== b && seatIsBot(a ? t.p1 : t.p2);
     }).length;
     const bvc = botVsBotCount(tables);
-    const idleCount = bots.filter(b => b.state === 'idle').length;
+    // 当前活跃机器人总数(非休眠),用于保底互打判断
+    const activeCount = bots.filter(b => b.state !== 'sleep').length;
     let target: any = null;
     let slot: 'p1' | 'p2' = 'p1';
     if (humanWait.length > 0) {
@@ -285,8 +305,8 @@ function lobbyLoop(bot: BotInstance): void {
       // 保底: 当前无机器人互对局,加入已在等伙伴的机器人桌,启动互打供旁观
       target = botWait[0];
       slot = !seatTaken(target.p1) ? 'p1' : 'p2';
-    } else if (bvc === 0 && empty.length > 0 && idleCount >= 2) {
-      // 保底: 自己占空桌等伙伴(至少 2 个空闲机器人时才开新保底桌)
+    } else if (bvc === 0 && empty.length > 0 && activeCount >= 2) {
+      // 保底: 自己占空桌等伙伴(活跃机器人 >= 2 时开新保底桌,供旁观)
       target = empty[Math.floor(Math.random() * empty.length)];
       slot = 'p1';
     } else if (empty.length > 0 && soloWait < SOLO_WAIT_CAP) {
@@ -347,10 +367,24 @@ function botVsBotCount(tables: Array<{ started: boolean; p1: any; p2: any }>): n
 }
 
 // ============ 对局 AI ============
+/** 出牌并附带失败兜底: 服务端拒绝(如气不足/时机不对)时不会广播新状态,机器人必须自己兜底推进,否则死锁 */
+function tryPlay(bot: BotInstance, uid: string, fallback: () => void): void {
+  if (!bot.socket || bot.socket.disconnected) return;
+  emitAck(bot.socket, 'playCard', { cardUid: uid }).then(r => {
+    if (!r.ok) fallback();
+  });
+}
+
+/** 结束行动(行动阶段兜底) */
+function tryEndAction(bot: BotInstance): void {
+  if (!bot.socket || bot.socket.disconnected) return;
+  emitAck(bot.socket, 'readyNextTurn', {});
+}
+
 function botEmergency(bot: BotInstance, room: any): void {
   const hand = room.you?.handCards || [];
   const heal = hand.find((c: any) => c.category === 'function_hp');
-  if (heal) emitAck(bot.socket!, 'playCard', { cardUid: heal.uid });
+  if (heal) tryPlay(bot, heal.uid, () => emitAck(bot.socket!, 'giveUpEmergencyHeal', {}));
   else emitAck(bot.socket!, 'giveUpEmergencyHeal', {});
 }
 
@@ -359,7 +393,7 @@ function botDefend(bot: BotInstance, room: any): void {
   // 八卦阵反弹(非绝杀时)
   const bagua = hand.find((c: any) => c.category === 'formation' && c.id.startsWith('bagua'));
   if (bagua && bot.lastAttackPower > 0) {
-    emitAck(bot.socket!, 'playCard', { cardUid: bagua.uid });
+    tryPlay(bot, bagua.uid, () => emitAck(bot.socket!, 'confirmDefend', {}));
     return;
   }
   // 出一个防具(最高防御),下个 roomState 若仍需防御则继续出或确认
@@ -367,7 +401,7 @@ function botDefend(bot: BotInstance, room: any): void {
     .filter((c: any) => c.category === 'armor')
     .sort((a: any, b: any) => b.value - a.value);
   if (armors.length > 0) {
-    emitAck(bot.socket!, 'playCard', { cardUid: armors[0].uid });
+    tryPlay(bot, armors[0].uid, () => emitAck(bot.socket!, 'confirmDefend', {}));
     return;
   }
   emitAck(bot.socket!, 'confirmDefend', {});
@@ -379,49 +413,58 @@ function botAction(bot: BotInstance, room: any): void {
   const hp = room.you?.hp ?? 8;
   const oppHp = room.opponent?.hp ?? 8;
   const myPid = room.yourPid;
+  const fallback = () => tryEndAction(bot);
 
-  // 0. 残血/缺血有锦囊 → 用锦囊(随机)
+  // 0. 残血/缺血有锦囊 → 用锦囊(随机);失败兜底结束行动
   const pouchOpts = (room.you?.pouches || []).flatMap((p: any) =>
     (p.options || []).map((o: any) => ({ sid: p.strategistId, pouch: o.pouch })),
   );
   if (pouchOpts.length > 0) {
     const po = pouchOpts[0];
-    emitAck(bot.socket!, 'usePouch', { strategistId: po.sid, pouch: po.pouch, choice: '' });
+    emitAck(bot.socket!, 'usePouch', { strategistId: po.sid, pouch: po.pouch, choice: '' }).then(r => {
+      if (!r.ok) fallback();
+    });
     return;
   }
   // 1. 绝杀: 对手低血
   const ult = hand.find((c: any) => c.category === 'ultimate');
   if (ult && oppHp <= 3) {
-    emitAck(bot.socket!, 'playCard', { cardUid: ult.uid });
+    tryPlay(bot, ult.uid, fallback);
     return;
   }
   // 2. 残血补血
   if (hp <= 2) {
     const heal = hand.find((c: any) => c.category === 'function_hp');
-    if (heal) { emitAck(bot.socket!, 'playCard', { cardUid: heal.uid }); return; }
+    if (heal) { tryPlay(bot, heal.uid, fallback); return; }
   }
   // 3. 气少补气
   if (qi < 3) {
     const q = hand.find((c: any) => c.category === 'function_qi');
-    if (q) { emitAck(bot.socket!, 'playCard', { cardUid: q.uid }); return; }
+    if (q) { tryPlay(bot, q.uid, fallback); return; }
   }
   // 4. 武将攻击(能负担的最高攻)
   const generals = hand
     .filter((c: any) => c.category === 'general')
     .sort((a: any, b: any) => b.value - a.value);
   const general = generals.find((g: any) => qi >= (g.cost || 0));
-  if (general) { emitAck(bot.socket!, 'playCard', { cardUid: general.uid }); return; }
+  if (general) { tryPlay(bot, general.uid, fallback); return; }
   // 5. 智者牌(白嫖锦囊)
   const strategist = hand.find((c: any) => c.category === 'strategist');
-  if (strategist) { emitAck(bot.socket!, 'playCard', { cardUid: strategist.uid }); return; }
+  if (strategist) { tryPlay(bot, strategist.uid, fallback); return; }
   // 6. 兵法/阵法
   const aux = hand.find((c: any) => c.category === 'strategy' || c.category === 'formation' || c.category === 'charm');
-  if (aux) { emitAck(bot.socket!, 'playCard', { cardUid: aux.uid }); return; }
-  // 7. 补气按钮
-  if (!room.you?.usedNormalQi) { emitAck(bot.socket!, 'useBonus', { type: 'normal' }); return; }
-  if (!room.you?.usedBigQi) { emitAck(bot.socket!, 'useBonus', { type: 'big' }); return; }
+  if (aux) { tryPlay(bot, aux.uid, fallback); return; }
+  // 7. 补气按钮(需满足轮次才尝试;失败兜底结束行动)
+  if (room.roundCount >= 4 && !room.you?.usedNormalQi) {
+    emitAck(bot.socket!, 'useBonus', { type: 'normal' }).then(r => { if (!r.ok) fallback(); });
+    return;
+  }
+  if (room.roundCount >= 7 && !room.you?.usedBigQi) {
+    emitAck(bot.socket!, 'useBonus', { type: 'big' }).then(r => { if (!r.ok) fallback(); });
+    return;
+  }
   // 8. 结束行动
-  emitAck(bot.socket!, 'readyNextTurn', {});
+  tryEndAction(bot);
   void myPid;
 }
 
@@ -437,6 +480,7 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
   bot.state = 'idle';
   bot.lastAttackPower = 0;
   bot.gameOverHandled = false;
+  bot.thinkTimer = null;
 
   socket.on('connect', () => {
     if (socket.id) {
@@ -444,7 +488,11 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
       bot.connId = socket.id;
     }
     console.log(`[BOT] ${bot.nickname} 上线 (${socket.id}) · 活跃 ${activeBotSocketIds.size}/${currentMaxActive()}`);
-    lobbyLoop(bot);
+    // 按机器人索引错峰进入大厅(2.5s/人 + 随机),避免并发决策时互相看不到已入座的机器人,
+    // 从而稳定触发「保底互打」: 先来的占空桌等伙伴,后来的看到后 join 同一桌。
+    const idx = bots.indexOf(bot);
+    const stagger = (idx < 0 ? 0 : idx) * 2500 + Math.random() * 1500;
+    setTimeout(() => lobbyLoop(bot), stagger).unref?.();
   });
 
   socket.on('connect_error', (err: Error) => {
@@ -456,18 +504,15 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
     bot.myPid = room.yourPid ?? null;
     if (room.started) bot.state = 'playing';
     if (room.emergencyHealPid === room.yourPid) {
-      botEmergency(bot, room);
+      scheduleThink(bot, () => botEmergency(bot, room), thinkDelay('emg'));
       return;
     }
     if (room.defensePid === room.yourPid) {
-      botDefend(bot, room);
+      scheduleThink(bot, () => botDefend(bot, room), thinkDelay('defend'));
       return;
     }
     if (room.turnPhase === 'action' && room.activePid === room.yourPid && room.actionEnded && !room.actionEnded[room.yourPid]) {
-      // 延后决策,避免与防御状态竞争
-      setTimeout(() => {
-        if (bot.socket && !bot.socket.disconnected) botAction(bot, room);
-      }, 500 + Math.random() * 900);
+      scheduleThink(bot, () => botAction(bot, room), thinkDelay('action'));
     }
   });
 
@@ -534,6 +579,8 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
     bot.socket = null;
     bot.state = 'sleep';
     if (bot.lobbyTimer) clearTimeout(bot.lobbyTimer);
+    if (bot.thinkTimer) clearTimeout(bot.thinkTimer);
+    bot.thinkTimer = null;
     console.log(`[BOT] ${bot.nickname} 离线 · 原因=${reason}`);
   });
 }
@@ -551,6 +598,8 @@ function wakeBot(bot: BotInstance, serverUrl: string): void {
 function sleepBot(bot: BotInstance): boolean {
   if (bot.state === 'sleep' || bot.state === 'playing') return false;
   if (bot.lobbyTimer) clearTimeout(bot.lobbyTimer);
+  if (bot.thinkTimer) clearTimeout(bot.thinkTimer);
+  bot.thinkTimer = null;
   try {
     bot.socket?.disconnect();
   } catch { /* ignore */ }
@@ -617,6 +666,7 @@ export function initBotSystem(serverUrl: string): void {
       myPid: null,
       lastAttackPower: 0,
       lobbyTimer: null,
+      thinkTimer: null,
       gameOverHandled: false,
       gamesToday: 0,
       dayKey: new Date().toISOString().slice(0, 10),
