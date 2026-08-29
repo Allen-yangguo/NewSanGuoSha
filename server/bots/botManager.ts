@@ -12,7 +12,7 @@
 import { io as createClient, Socket } from 'socket.io-client';
 import * as fs from 'fs';
 import * as path from 'path';
-import { listBots, createBotUser, isBotUser } from '../auth/db';
+import { listBots, createBotUser, isBotUser, updateUserNickname } from '../auth/db';
 import { createBotToken } from '../auth/authService';
 
 const MAX_ACTIVE = 10;                 // 同时活跃上限
@@ -39,20 +39,111 @@ function currentMaxActive(): number {
 /** 活跃机器人 socket id 集合(供监控区分统计) */
 const activeBotSocketIds = new Set<string>();
 
-/** 机器人昵称生成: 三国风 前/后缀 组合 */
-const BOT_PREFIX = [
+/** 机器人昵称生成: 拟真真人风格(姓名/网名/英文/趣味混合,避免模板化一眼假) */
+// 旧版模板昵称(前缀+后缀,如「陈留先锋」)保留在这里仅用于迁移检测
+const LEGACY_PREFIX = [
   '千里', '单骑', '卧龙', '凤雏', '锦帆', '白衣', '百骑', '虎痴', '恶来', '鬼谋',
   '温侯', '美髯', '燕人', '子龙', '幼麟', '冢虎', '飞将', '毒士', '陈留', '颍川',
 ];
-const BOT_SUFFIX = [
+const LEGACY_SUFFIX = [
   '剑客', '豪杰', '谋主', '先锋', '都督', '军师', '猛将', '游侠', '隐士', '名士',
   '虎将', '悍将', '奇才', '神射', '铁骑', '轻骑', '医者', '信使', '商贾', '镖师',
 ];
 
+const SURNAMES = [
+  '张', '王', '李', '赵', '刘', '陈', '杨', '黄', '周', '吴', '徐', '孙', '马', '朱', '胡', '郭', '何',
+  '高', '林', '罗', '郑', '梁', '谢', '宋', '唐', '许', '韩', '冯', '邓', '曹', '彭', '曾', '萧', '程',
+  '袁', '董', '潘', '蒋', '蔡', '余', '杜', '叶', '苏', '魏', '吕', '丁', '沈', '任', '姚', '卢', '姜',
+  '崔', '钟', '谭', '陆', '汪', '范', '金', '石', '廖', '贾', '夏', '韦', '付', '方', '白', '邹', '孟',
+  '熊', '秦', '邱', '江', '尹', '薛', '闫', '段', '雷', '侯', '龙', '史', '陶', '黎', '贺', '顾', '毛',
+  '郝', '龚', '邵', '万', '钱', '严', '覃', '武', '戴', '莫', '孔', '向', '汤',
+];
+const GIVEN_1 = [
+  '伟', '芳', '娜', '敏', '静', '丽', '强', '磊', '军', '洋', '勇', '艳', '杰', '娟', '涛', '明', '超',
+  '秀', '霞', '平', '刚', '桂', '英', '华', '玉', '萍', '红', '晶', '丹', '梅', '旭', '辉', '帆', '斌',
+  '宇', '浩', '凯', '晨', '阳', '雪', '峰', '霖', '楠', '琳', '璐', '婷', '悦', '睿', '轩', '宸', '怡',
+  '欣', '妍', '航', '哲', '博', '然', '泽', '希', '诺', '尧', '俊', '东', '坤', '鹏', '翔', '飞', '亮',
+  '健', '鑫', '雷', '佳', '嘉', '冰', '洁', '安', '琪', '萱', '涵', '彤', '韵', '淑', '珍', '芝', '兰',
+  '琴', '雯', '云', '颖', '凤', '娥', '花', '春', '夏', '秋', '冬', '宁', '柔', '巧', '甜', '蜜', '霜',
+  '露', '雨', '晴', '枫', '松', '柏', '柳', '杨', '槐', '森', '林', '川', '岩', '峰', '野', '原', '田',
+];
+const NET_2 = [
+  '清风', '明月', '星河', '云舒', '晚风', '初雪', '听雨', '拾光', '南巷', '北岛', '长安', '故里', '半夏',
+  '微凉', '浅笑', '静好', '安然', '若曦', '沐辰', '子墨', '书言', '念安', '初晴', '晚秋', '春晓', '秋棠',
+  '冬雪', '夏萤', '思远', '慕白', '知微', '云深', '逐月', '凌霜', '孤鸿', '落霞', '飞雪', '青梧', '白榆',
+  '沉舟', '破晓', '长歌', '远山', '听澜', '望舒', '疏影', '暗香', '流萤', '星野', '月白', '浮生', '半盏',
+  '一梦', '千寻', '未央', '顾北', '南乔', '北栀', '清欢', '归途', '旧梦', '新芽', '拾忆', '听风', '观澜',
+  '折光', '萤火', '沐雨', '闻笛', '枕月', '踏雪', '寻梅', '点墨', '挥毫', '泛舟', '采薇', '摘星', '揽月',
+  '抚琴', '弈棋', '品茗', '煮酒', '论道', '说书', '行医', '铸剑', '猎风', '逐日', '追月', '暮霭', '晨曦',
+  '繁星', '冷月', '孤帆', '远影', '扁舟', '蓑笠', '钓雪', '寒江', '独钓', '采菊', '东篱', '南山', '归隐',
+  '听泉', '望岳', '临渊', '羡鱼', '结庐', '人间', '云朵', '糖豆', '星星', '月亮', '太阳', '泡泡', '雪球',
+  '奶茶', '布丁', '团子', '麻薯', '芋圆', '糯米', '豆沙', '芝麻', '花生', '核桃', '柚子', '芒果', '柠檬',
+];
+const NET_4 = [
+  '小桥流水', '长安故里', '南巷旧人', '七月长安', '一叶知秋', '半盏清茶', '南风知意', '北冥有鱼', '月下独酌',
+  '风起长林', '山河远阔', '人间烟火', '且听风吟', '岁月静好', '浮生若梦', '时光微凉', '落花听雨', '烟雨江南',
+  '青灯古卷', '白衣胜雪', '踏雪无痕', '剑指天涯', '醉卧沙场', '策马奔腾', '仗剑天涯', '快意恩仇', '笑傲江湖',
+  '浪迹天涯', '无名之辈', '过客匆匆', '红尘摆渡', '菩提树下', '三生有幸', '十里桃花', '千山暮雪', '万里星河',
+  '云淡风轻', '静水流深', '细水长流', '灯火阑珊', '曲终人散', '高山流水', '阳春白雪', '沧海桑田', '海阔天空',
+  '天高云淡', '风轻云淡', '花好月圆', '良辰美景', '一见如故', '相见恨晚', '旧友重逢', '江湖再见', '来日方长',
+];
+const EN_NAMES = [
+  'Luna', 'Momo', 'Aki', 'Rio', 'Kiki', 'Nana', 'Yuki', 'Mia', 'Leo', 'Kevin', 'Jerry', 'Tommy',
+  'Jacky', 'Sunny', 'Star', 'Moon', 'Sky', 'Wind', 'Fire', 'Ice', 'Rain', 'Snow', 'King', 'Queen',
+  'Hero', 'Sword', 'Dragon', 'Tiger', 'Wolf', 'Fox', 'Bear', 'Eagle', 'Night', 'Dawn', 'Misty',
+  'Coco', 'Lily', 'Molly', 'Dora', 'Nina', 'Rita', 'Sara', 'Emma', 'Amy', 'Ivy', 'Joy', 'Grace',
+  'Rose', 'Candy', 'Hana', 'Sora', 'Kai', 'Rin', 'Suki', 'Rui', 'Ao', 'Ren', 'Yua', 'Mika',
+];
+const FUN_NAMES = [
+  '肉肉', '团子', '麻薯', '布丁', '奶茶', '可乐', '薯片', '干饭人', '摆烂王', '摸鱼大师', '夜猫子',
+  '早睡冠军', '咸鱼翻身', '阿杰', '阿伟', '小新', '小丸子', '皮皮虾', '螃蟹', '章鱼哥', '小狐狸',
+  '大聪明', '小机灵', '老好人', '热心肠', '话痨', '闷葫芦', '开心果', '小太阳', '元气满满', '佛系青年',
+];
+
+function pick<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/** 生成一个拟真昵称(不保证唯一) */
 function genNickname(): string {
-  const p = BOT_PREFIX[Math.floor(Math.random() * BOT_PREFIX.length)];
-  const s = BOT_SUFFIX[Math.floor(Math.random() * BOT_SUFFIX.length)];
-  return p + s;
+  const r = Math.random() * 100;
+  let nick: string;
+  if (r < 15) {
+    nick = pick(SURNAMES) + pick(GIVEN_1); // 姓名·2字: 张伟 / 李娜
+  } else if (r < 30) {
+    nick = pick(SURNAMES) + pick(GIVEN_1) + pick(GIVEN_1); // 姓名·3字: 王雨晴 / 刘子涵
+  } else if (r < 60) {
+    nick = pick(NET_2); // 双字网名: 清风 / 星河
+  } else if (r < 70) {
+    nick = pick(NET_4); // 四字网名: 小桥流水 / 半盏清茶
+  } else if (r < 80) {
+    nick = pick(EN_NAMES); // 英文名: Luna / Momo
+  } else if (r < 85) {
+    nick = pick(FUN_NAMES); // 趣味口语: 干饭人 / 小狐狸
+  } else {
+    nick = pick(NET_2) + (Math.random() < 0.5 ? '' : pick(GIVEN_1)); // 双字+字: 清风雨
+  }
+  // 约 1/4 概率追加数字/符号装饰,更贴近真实玩家 ID
+  const dr = Math.random();
+  if (dr < 0.12) nick += Math.floor(Math.random() * 90 + 10);            // 清风87
+  else if (dr < 0.20) nick += '_' + Math.floor(Math.random() * 900 + 100); // 清风_257
+  else if (dr < 0.24) nick += pick(['~', '.', '·', '-']) + Math.floor(Math.random() * 9 + 1); // 清风~3
+  return nick;
+}
+
+/** 旧版模板昵称(2字前缀+2字后缀)检测 */
+function isLegacyNick(nick: string): boolean {
+  if (nick.length !== 4) return false;
+  return LEGACY_PREFIX.includes(nick.slice(0, 2)) && LEGACY_SUFFIX.includes(nick.slice(2));
+}
+
+/** 生成一个与 used 不重复的昵称 */
+function genUniqueNickname(used: Set<string>): string {
+  for (let i = 0; i < 300; i++) {
+    const n = genNickname();
+    if (!used.has(n)) return n;
+  }
+  return genNickname() + Math.floor(Math.random() * 10000);
 }
 
 function readMeta(): { lastDaily: string } {
@@ -75,12 +166,28 @@ function writeMeta(m: { lastDaily: string }): void {
 /** 补齐到目标数量(幂等),返回所有机器人用户 */
 function ensureBots(): { uid: string; nickname: string }[] {
   let bots = listBots();
+  const used = new Set(bots.map(b => b.nickname));
   for (let i = bots.length; i < TARGET_BOTS; i++) {
-    const nick = genNickname();
+    const nick = genUniqueNickname(used);
+    used.add(nick);
     const row = createBotUser(nick);
     bots.push(row);
   }
   return bots.map(b => ({ uid: `u${b.id}`, nickname: b.nickname }));
+}
+
+/** 将旧版模板昵称(前缀+后缀,如「陈留先锋」)迁移为拟真昵称(幂等) */
+function migrateLegacyBots(): void {
+  const bots = listBots();
+  const used = new Set(bots.map(b => b.nickname));
+  for (const b of bots) {
+    if (!isLegacyNick(b.nickname)) continue;
+    const fresh = genUniqueNickname(used);
+    updateUserNickname(b.id, fresh);
+    used.delete(b.nickname);
+    used.add(fresh);
+    console.log(`[BOT] 昵称迁移: ${b.nickname} → ${fresh}`);
+  }
 }
 
 /** 每日新增 2~3 个模拟玩家(日期变更才执行) */
@@ -89,8 +196,11 @@ function dailyAddBots(): void {
   const today = new Date().toISOString().slice(0, 10);
   if (meta.lastDaily === today) return;
   const count = DAILY_ADD[0] + Math.floor(Math.random() * (DAILY_ADD[1] - DAILY_ADD[0] + 1));
+  const used = new Set(listBots().map(b => b.nickname));
   for (let i = 0; i < count; i++) {
-    createBotUser(genNickname());
+    const nick = genUniqueNickname(used);
+    used.add(nick);
+    createBotUser(nick);
   }
   writeMeta({ lastDaily: today });
   console.log(`[BOT] 每日新增 ${count} 个模拟玩家 · 当前共 ${listBots().length} 个`);
@@ -491,7 +601,8 @@ function startLoopWatchdog(): void {
 /** 初始化模拟玩家系统: 预建 + 每日新增 + 唤醒第一批 + 轮换定时器 */
 export function initBotSystem(serverUrl: string): void {
   startLoopWatchdog();
-  const all = ensureBots();
+  ensureBots();
+  migrateLegacyBots(); // 旧模板昵称迁移为拟真昵称(幂等,仅在首次升级时改名)
   dailyAddBots();
   const refreshed = listBots().map(b => ({ uid: `u${b.id}`, nickname: b.nickname }));
   // 用刷新后的完整列表建实例(兼容已有实例)

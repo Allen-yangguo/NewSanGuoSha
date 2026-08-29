@@ -284,8 +284,18 @@ onMounted(() => {
 .seat.mine { background: rgba(181, 70, 58, 0.10); border-color: #B5463A; }
 .seat.offline { opacity: 0.7; }
 .seat-name {
-  font-size: 13px; font-weight: 700; color: #4B3B2A;
-  display: flex; align-items: center; gap: 4px;
+  font-size: 13px; font-weight: 800; color: #FFF8E4;
+  background: linear-gradient(180deg, #8A6A3B, #6B4A2B);
+  padding: 2px 10px;
+  border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 4px;
+  box-shadow: 0 1px 3px rgba(75, 59, 42, 0.35);
+  max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.seat.mine .seat-name {
+  background: linear-gradient(180deg, #C05347, #A03A30);
+  box-shadow: 0 1px 3px rgba(160, 58, 48, 0.45);
 }
 .seat-off { font-size: 11px; }
 .seat-ready {
