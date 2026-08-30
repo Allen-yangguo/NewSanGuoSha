@@ -49,7 +49,7 @@ import {
   dashboardHandler,
 } from './monitor/monitor';
 import { createAdminRouter, adminDashboardHandler } from './admin/admin';
-import { initBotSystem, shutdownBots, getBotSocketIds } from './bots/botManager';
+import { initBotSystem, shutdownBots, getBotSocketIds, isBotSocketId, ensureBotOpponent } from './bots/botManager';
 
 /** 旁观者: 桌id -> socket id 集合(用于 roomState 推送) */
 const spectators = new Map<number, Set<string>>();
@@ -606,7 +606,7 @@ io.on('connection', (socket: Socket) => {
     // 入座
     seat.socketId = socket.id;
     seat.userId = userId;
-    // 登录用户优先使用账号昵称；游客回退到 payload.name 或默认槽位名
+    // 登录用户优先使用账号昵称；游客回退到 payload.name 或自动生成的游客名
     let resolvedName: string | null = null;
     if (userId) {
       const userRes = getUserByUid(userId);
@@ -614,6 +614,7 @@ io.on('connection', (socket: Socket) => {
     }
     if (resolvedName) seat.name = resolvedName;
     else if (payload?.name) seat.name = payload.name;
+    else if (userId && userId.startsWith('g')) seat.name = `游客${userId.slice(1, 5)}`;
     // 重连场景不重置 ready（对局进行中 ready 无意义；大厅重连保留原 ready）
     if (!table.started) seat.ready = false;
 
@@ -640,6 +641,14 @@ io.on('connection', (socket: Socket) => {
         firstPlayerPid: table.engine.state.firstPlayer,
       });
       pushRoomStateTo(io, table, socket.id);
+    }
+
+    // 真人入座且对面是空座 → 调度模拟玩家来陪(避免真人干等)
+    if (!table.started && !isBotSocketId(socket.id)) {
+      const other: Slot = slot === 'p1' ? 'p2' : 'p1';
+      if (!table.players[other].socketId) {
+        ensureBotOpponent();
+      }
     }
 
     broadcastTableUpdate(io, table);

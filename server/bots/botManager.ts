@@ -768,7 +768,11 @@ function startLoopWatchdog(): void {
 // 对外接口
 // ============================================================
 /** 初始化模拟玩家系统: 预建 + 每日新增 + 唤醒第一批 + 轮换定时器 */
+/** 服务端 URL(唤醒沉睡机器人时用) */
+let botServerUrl = '';
+
 export function initBotSystem(serverUrl: string): void {
+  botServerUrl = serverUrl;
   startLoopWatchdog();
   ensureBots();
   migrateLegacyBots(); // 旧模板昵称迁移为拟真昵称(幂等,仅在首次升级时改名)
@@ -827,6 +831,27 @@ export function getBotSocketIds(): Set<string> {
 /** 判断 socket id 是否机器人 */
 export function isBotSocketId(socketId: string): boolean {
   return activeBotSocketIds.has(socketId);
+}
+
+/** 真人入座空桌: 调度机器人来陪(空闲机器人立即决策;无空闲则唤醒一个沉睡的) */
+export function ensureBotOpponent(): void {
+  // 让所有空闲机器人立即检查大厅(优先「陪真人」)
+  for (const b of bots) {
+    if (b.state === 'idle' && b.socket && !b.socket.disconnected) {
+      lobbyLoop(b);
+    }
+  }
+  // 没有空闲机器人 → 唤醒一个沉睡的(未达当日 30 局上限)
+  const idleNow = bots.filter(b => b.state === 'idle').length;
+  if (idleNow === 0) {
+    const today = beijingDate();
+    const sleeper = bots.find(b =>
+      b.state === 'sleep' && !(b.dayKey === today && b.gamesToday >= DAILY_GAME_CAP));
+    if (sleeper) {
+      console.log(`[BOT] 真人入座 · 唤醒 ${sleeper.nickname} 来陪`);
+      wakeBot(sleeper, botServerUrl);
+    }
+  }
 }
 
 /** 判断 uid 是否模拟玩家(供表格/监控用) */

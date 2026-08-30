@@ -497,7 +497,7 @@ io.on('connection', (socket) => {
         // 入座
         seat.socketId = socket.id;
         seat.userId = userId;
-        // 登录用户优先使用账号昵称；游客回退到 payload.name 或默认槽位名
+        // 登录用户优先使用账号昵称；游客回退到 payload.name 或自动生成的游客名
         let resolvedName = null;
         if (userId) {
             const userRes = (0, authService_1.getUserByUid)(userId);
@@ -508,6 +508,8 @@ io.on('connection', (socket) => {
             seat.name = resolvedName;
         else if (payload?.name)
             seat.name = payload.name;
+        else if (userId && userId.startsWith('g'))
+            seat.name = `游客${userId.slice(1, 5)}`;
         // 重连场景不重置 ready（对局进行中 ready 无意义；大厅重连保留原 ready）
         if (!table.started)
             seat.ready = false;
@@ -532,6 +534,13 @@ io.on('connection', (socket) => {
                 firstPlayerPid: table.engine.state.firstPlayer,
             });
             pushRoomStateTo(io, table, socket.id);
+        }
+        // 真人入座且对面是空座 → 调度模拟玩家来陪(避免真人干等)
+        if (!table.started && !(0, botManager_1.isBotSocketId)(socket.id)) {
+            const other = slot === 'p1' ? 'p2' : 'p1';
+            if (!table.players[other].socketId) {
+                (0, botManager_1.ensureBotOpponent)();
+            }
         }
         broadcastTableUpdate(io, table);
         broadcastTableList(io);
