@@ -106,6 +106,7 @@
         :me="false"
         :ai-opponent="gameMode === 'single'"
         :interactive="!spectating"
+        :ready-state="state.started || !roomOppName ? null : roomOppReady"
         :first-player-pid="state.firstPlayerPid"
         :active-pid="state.activePid"
         :defense-pid="state.defensePid"
@@ -227,6 +228,7 @@
           :player="state.started ? state.you : roomMyPlayer"
           me
           :interactive="!spectating"
+          :ready-state="state.started ? null : state.myReady"
           :first-player-pid="state.firstPlayerPid"
           :active-pid="state.activePid"
           :defense-pid="state.defensePid"

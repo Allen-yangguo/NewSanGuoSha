@@ -21,6 +21,8 @@
     </div>
     <div class="meta">
       <div class="row-name">
+        <span v-if="props.readyState === true" class="tag ready">✓ 已准备</span>
+        <span v-if="props.readyState === false" class="tag notready">未准备</span>
         <span v-if="isFirst" class="tag">先手</span>
         <span v-if="isActiveTurn && !isDefendingMe" class="tag turn">行动中</span>
         <span v-if="isDefendingMe" class="tag turn">防御中</span>
@@ -96,6 +98,8 @@ const props = defineProps<{
   guiBeiProtectorPid?: PlayerId | null;
   guiBeiLayers?: number;
   guiBeiRemainingTurns?: number;
+  /** 准备状态(未开局时显示: true=已准备 / false=未准备 / null=不显示) */
+  readyState?: boolean | null;
 }>();
 
 defineEmits<{

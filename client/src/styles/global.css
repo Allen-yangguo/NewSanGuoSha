@@ -807,6 +807,8 @@ a { color: #8C4A40; }
 .meta .row-name { display: flex; align-items: center; gap: 8px; }
 .meta .name { font-size: 15px; font-weight: 800; color: #3A2E22; letter-spacing: 1px; }
 .meta .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #8C4A40; color: #FFF4D5; }
+.meta .tag.ready { background: #2E6B4C; }
+.meta .tag.notready { background: #8E734F; }
 .meta .tag.turn { background: #2D5460; }
 .meta .tag.buff { background: #6A521E; }
 .meta .tag.heal { background: #8A6D29; }
