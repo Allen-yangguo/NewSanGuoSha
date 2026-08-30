@@ -88,6 +88,61 @@ a { color: #8C4A40; }
 .action-btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .action-btns .btn { flex: 1 1 auto; min-width: 88px; font-size: 14px; }
 
+/* ===== 对局室(对战界面未开局时的准备区)===== */
+.room-players {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 12px;
+}
+.room-seat {
+  border: 2px solid #A8864F;
+  border-radius: 12px;
+  background: rgba(255, 251, 238, 0.9);
+  padding: 16px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: 140px;
+}
+.room-seat.mine {
+  border-color: #B5463A;
+  background: rgba(181, 70, 58, 0.08);
+}
+.room-seat.empty {
+  border-style: dashed;
+  border-color: #C9A975;
+  background: rgba(255, 251, 238, 0.5);
+}
+.room-seat .seat-avatar { font-size: 34px; }
+.room-seat .seat-name {
+  font-size: 15px;
+  font-weight: 800;
+  color: #4B3B2A;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.room-seat .seat-name.ghost { color: #B7A27E; font-weight: 600; }
+.room-seat .seat-info { font-size: 12px; color: #8E734F; }
+.room-seat .seat-ready {
+  font-size: 13px;
+  font-weight: 700;
+  color: #8E734F;
+  margin-top: 4px;
+}
+.room-seat .seat-ready.on { color: #2D5460; }
+.room-seat .offline-hint { color: #B5463A; font-size: 11px; }
+.room-vs {
+  font-size: 18px;
+  font-weight: 800;
+  color: #B5463A;
+  align-self: center;
+}
+
 /* 对局结束过渡提示(按钮位置,白底,倒计时后进动画) */
 .gameover-hint {
   flex: 1 1 auto;

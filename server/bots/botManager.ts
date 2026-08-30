@@ -238,6 +238,8 @@ interface BotInstance {
   thinkTimer: ReturnType<typeof setTimeout> | null;
   /** 对局结束后「等真人再来一局」/ 对局终止后「等新真人」定时器 */
   rematchTimer: ReturnType<typeof setTimeout> | null;
+  /** 是否有「再来一局」请求在途(防重复请求) */
+  rematchPending: boolean;
   /** 最近 roomState 的 gameOver(区分「对局结束」与「对局进行中」) */
   lastGameOver: boolean;
   gameOverHandled: boolean;
@@ -247,6 +249,10 @@ interface BotInstance {
   dayKey: string;
   /** 最近坐过的桌(避免立刻重复入座) */
   lastTableId: number | null;
+  /** 本批连续对局目标(随机 2~8,达成后离桌休息,下次重新随机) */
+  sessionTarget: number;
+  /** 本批已完赛局数 */
+  sessionGames: number;
 }
 
 const bots: BotInstance[] = [];
@@ -487,6 +493,47 @@ function botAction(bot: BotInstance, room: any): void {
   void myPid;
 }
 
+/** 机器人离桌回大厅(重置连续对局批次,下次对局重新随机 2~8 局) */
+function botLeaveToLobby(bot: BotInstance): void {
+  bot.state = 'idle';
+  bot.gameOverHandled = false;
+  bot.sessionTarget = 0;
+  bot.sessionGames = 0;
+  bot.rematchPending = false;
+  lobbyLoop(bot);
+}
+
+/** 机器人请求「再来一局」(防重复;失败按原因处理: 时机未到→延迟重试, 对方离开→离桌) */
+function botRequestRematch(bot: BotInstance): void {
+  if (!bot.socket || bot.socket.disconnected) return;
+  if (bot.rematchPending) return; // 已有请求在途
+  bot.rematchPending = true;
+  emitAck(bot.socket, 'resetRoom', {}).then((r) => {
+    if (!bot.socket || bot.socket.disconnected) return;
+    if (r.ok && r.data?.waiting) {
+      // 等待对方确认 → 30 秒未确认 → 离桌回大厅
+      bot.rematchTimer = setTimeout(() => {
+        bot.rematchTimer = null;
+        bot.rematchPending = false;
+        emitAck(bot.socket!, 'standUp', {}).then(() => botLeaveToLobby(bot));
+      }, 30000).unref?.();
+    } else if (r.ok) {
+      bot.gameOverHandled = false; // 双方确认 → 已重开
+      bot.rematchPending = false;
+    } else {
+      const err = r.data?.error || '';
+      bot.rematchPending = false;
+      if (/对局未结束/.test(err)) {
+        // 时机未到(对方刚重开/状态未就绪) → 延迟重试,不立即退出
+        bot.rematchTimer = setTimeout(() => botRequestRematch(bot), 3000).unref?.();
+      } else {
+        // 对方已离开等 → 离桌回大厅
+        emitAck(bot.socket!, 'standUp', {}).then(() => botLeaveToLobby(bot));
+      }
+    }
+  });
+}
+
 /** 连接机器人 socket 并挂载 AI 监听 */
 function connectBot(bot: BotInstance, serverUrl: string): void {
   const token = createBotToken(bot.uid);
@@ -501,6 +548,9 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
   bot.gameOverHandled = false;
   bot.thinkTimer = null;
   bot.lastGameOver = false;
+  bot.sessionTarget = 0;
+  bot.sessionGames = 0;
+  bot.rematchPending = false;
 
   socket.on('connect', () => {
     if (socket.id) {
@@ -562,42 +612,34 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
       bot.gamesToday = 0;
     }
     bot.gamesToday += 1;
+    // 连续对局计数: 本批目标未定则随机 2~8 局(模拟真人连打几局再休息)
+    bot.sessionGames += 1;
+    if (bot.sessionTarget === 0) {
+      bot.sessionTarget = 2 + Math.floor(Math.random() * 7); // 2~8
+      console.log(`[BOT] ${bot.nickname} 本批目标连续 ${bot.sessionTarget} 局`);
+    }
     // 当日对局达到上限 → 先离桌,再休眠(对局刚结束时 state 仍是 playing,sleepBot 拒绝 playing,必须先 standUp)
     if (bot.gamesToday >= DAILY_GAME_CAP) {
       console.log(`[BOT] ${bot.nickname} 今日对局已达 ${DAILY_GAME_CAP} 局上限,今日不再激活`);
-      bot.gameOverHandled = false;
       emitAck(socket, 'standUp', {}).then(() => {
         bot.state = 'idle';
         sleepBot(bot);
       });
       return;
     }
-    // 对局结束: 主动请求「再来一局」(对手确认后重开;对手是机器人也会自动确认)
-    if (bot.rematchTimer) clearTimeout(bot.rematchTimer);
+    // 本批目标达成 → 离桌休息(换桌/等轮换),下次对局重新随机 2~8 局
+    if (bot.sessionGames >= bot.sessionTarget) {
+      console.log(`[BOT] ${bot.nickname} 本批 ${bot.sessionGames} 局达成 · 离桌休息`);
+      emitAck(socket, 'standUp', {}).then(() => {
+        botLeaveToLobby(bot);
+      });
+      return;
+    }
+    // 未达目标 → 请求「再来一局」(防重复;失败按原因重试或离桌)
+    bot.rematchPending = false;
     bot.rematchTimer = setTimeout(() => {
       bot.rematchTimer = null;
-      emitAck(socket, 'resetRoom', {}).then((r) => {
-        if (r.ok && r.data?.waiting) {
-          // 等待对方确认 → 30 秒未确认 → 离桌回大厅
-          bot.rematchTimer = setTimeout(() => {
-            bot.rematchTimer = null;
-            emitAck(socket, 'standUp', {}).then(() => {
-              bot.state = 'idle';
-              bot.gameOverHandled = false;
-              lobbyLoop(bot);
-            });
-          }, 30000).unref?.();
-        } else if (!r.ok) {
-          // 重开失败(对局未结束/对方已离开等) → 离桌回大厅
-          emitAck(socket, 'standUp', {}).then(() => {
-            bot.state = 'idle';
-            bot.gameOverHandled = false;
-            lobbyLoop(bot);
-          });
-        } else {
-          bot.gameOverHandled = false; // 双方确认 → 已重开
-        }
-      });
+      botRequestRematch(bot);
     }, 6000);
   });
 
@@ -605,18 +647,7 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
   socket.on('eventRematchRequest', () => {
     if (bot.state === 'playing' && bot.lastGameOver) {
       if (bot.rematchTimer) { clearTimeout(bot.rematchTimer); bot.rematchTimer = null; }
-      emitAck(socket, 'resetRoom', {}).then((r) => {
-        if (!r.ok) {
-          // 重开失败(对方已离开等) → 离桌回大厅
-          emitAck(socket, 'standUp', {}).then(() => {
-            bot.state = 'idle';
-            bot.gameOverHandled = false;
-            lobbyLoop(bot);
-          });
-        } else {
-          bot.gameOverHandled = false;
-        }
-      });
+      botRequestRematch(bot);
     }
   });
 
@@ -626,14 +657,15 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
     bot.state = 'sitting';
     bot.gameOverHandled = false;
     bot.lastGameOver = false;
+    bot.sessionTarget = 0; // 对局被终止 → 视为新一批
+    bot.sessionGames = 0;
     if (bot.rematchTimer) { clearTimeout(bot.rematchTimer); bot.rematchTimer = null; }
     // 重新准备(真人入座后双方准备即开局);90 秒等不到真人 → 换桌
     emitAck(socket, 'ready', {}).then(() => {
       bot.rematchTimer = setTimeout(() => {
         bot.rematchTimer = null;
         emitAck(socket, 'standUp', {}).then(() => {
-          bot.state = 'idle';
-          lobbyLoop(bot);
+          botLeaveToLobby(bot);
         });
       }, 90000).unref?.();
     });
@@ -647,9 +679,7 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
       // 对局结束后对手离开 → 等不来「再来一局」,离桌回大厅
       if (bot.rematchTimer) { clearTimeout(bot.rematchTimer); bot.rematchTimer = null; }
       emitAck(socket, 'standUp', {}).then(() => {
-        bot.state = 'idle';
-        bot.gameOverHandled = false;
-        lobbyLoop(bot);
+        botLeaveToLobby(bot);
       });
     }
     // 对局进行中对手断线 → 留在桌等真人回来(服务端保留对局与座位,90s 未回按强退终止)
@@ -665,6 +695,7 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
     bot.thinkTimer = null;
     if (bot.rematchTimer) clearTimeout(bot.rematchTimer);
     bot.rematchTimer = null;
+    bot.rematchPending = false;
     console.log(`[BOT] ${bot.nickname} 离线 · 原因=${reason}`);
   });
 }
@@ -686,6 +717,7 @@ function sleepBot(bot: BotInstance): boolean {
   bot.thinkTimer = null;
   if (bot.rematchTimer) clearTimeout(bot.rematchTimer);
   bot.rematchTimer = null;
+  bot.rematchPending = false;
   try {
     bot.socket?.disconnect();
   } catch { /* ignore */ }
@@ -797,6 +829,9 @@ export function initBotSystem(serverUrl: string): void {
       gamesToday: 0,
       dayKey: beijingDate(),
       lastTableId: null,
+      sessionTarget: 0,
+      sessionGames: 0,
+      rematchPending: false,
     });
   }
   console.log(`[BOT] 模拟玩家系统启动 · 共 ${bots.length} 个(当前时段目标活跃 ${currentMaxActive()})`);

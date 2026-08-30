@@ -75,35 +75,62 @@
       </template>
     </template>
 
-    <!-- 局域网大厅：选了联机但对局未开始（坐下/准备都在大厅内完成）-->
-    <LobbyScreen v-else-if="gameMode === 'lan' && !state.started" @exit="exitToEntry" />
+    <!-- 局域网大厅：未入座 → 选桌入座 -->
+    <LobbyScreen v-else-if="gameMode === 'lan' && state.myTableId === null" @exit="exitToEntry" />
 
-    <!-- 联机对局进行中 / 单机模式直接进入对局 -->
-    <template v-else-if="gameMode === 'single' || state.started">
-      <!-- 等待对手 -->
+    <!-- 已入座(联机)/单机 → 对战界面(未开局时同一页面内显示准备区,开局后显示牌桌) -->
+    <template v-else>
+      <!-- 准备区: 未开局,自己信息 + 对方(空白/已入座) + 准备按钮 -->
       <div v-if="!state.started" class="lobby">
         <div class="lobby-box">
-          <div class="lobby-title">等待对手</div>
-          <div class="lobby-sub">
-            你是：<b>{{ state.yourSlot?.toUpperCase() }} · 玩家 {{ (state.yourPid ?? 0) + 1 }}</b><br/>
+          <div class="lobby-title">{{ gameMode === 'lan' ? `对局室 · 桌${state.myTableId}` : '单机对战' }}</div>
+
+          <!-- 双方座位信息 -->
+          <div class="room-players">
+            <!-- 自己 -->
+            <div class="room-seat mine">
+              <div class="seat-avatar">👤</div>
+              <div class="seat-name">{{ roomMyName }}</div>
+              <div class="seat-info">{{ state.mySlot?.toUpperCase() }} 座</div>
+              <div class="seat-ready" :class="{ on: state.myReady }">{{ state.myReady ? '✓ 已准备' : '未准备' }}</div>
+            </div>
+            <div class="room-vs">VS</div>
+            <!-- 对方 -->
+            <div class="room-seat" :class="{ empty: !roomOppName }">
+              <div class="seat-avatar">{{ roomOppName ? '👤' : '🪑' }}</div>
+              <div class="seat-name" :class="{ ghost: !roomOppName }">{{ roomOppName || '等待玩家入座…' }}</div>
+              <div class="seat-info">{{ roomOppName ? `${roomOppSlot?.toUpperCase()} 座` : '' }}</div>
+              <div class="seat-ready" :class="{ on: roomOppReady }">
+                {{ roomOppName ? (roomOppReady ? '✓ 已准备' : '未准备') : '' }}
+                <span v-if="roomOppName && !roomOppPresent" class="offline-hint">⌛ 掉线重连中</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 准备/离开 -->
+          <div style="display:flex;gap:8px;justify-content:center;margin-top:12px;">
             <template v-if="gameMode === 'lan'">
-              请让好友打开同一网址加入房间
+              <button v-if="!state.myReady" class="btn primary" @click="onRoomReady">准备</button>
+              <button v-else class="btn dark" @click="onRoomCancelReady">取消准备</button>
+              <button class="btn dark" @click="onRoomLeave">离开房间</button>
             </template>
             <template v-else>
-              正在为 AI 准备...
+              <button class="btn dark" @click="exitToEntry">返回</button>
             </template>
+          </div>
+
+          <div class="lobby-sub" style="margin-top:8px;">
+            <template v-if="gameMode === 'lan'">双方都点「准备」后自动开始战斗</template>
+            <template v-else>正在为 AI 准备...</template>
           </div>
           <div class="lobby-url" v-if="gameMode === 'lan'">
             <input readonly :value="shareUrl" @click="copyShareUrl" class="share-input" />
             <button class="btn" @click="copyShareUrl">复制网址</button>
           </div>
-          <div style="display:flex;gap:8px;justify-content:center;">
-            <button class="btn dark" @click="exitToEntry">返回</button>
-          </div>
         </div>
       </div>
 
-      <!-- 对局主界面 -->
+      <!-- 对局主界面(开局后) -->
       <template v-else>
         <!-- 顶部：返回 + 静音 + 日志按钮（旁观模式返回=退出旁观） -->
         <div style="display:flex;justify-content:space-between;gap:6px;">
@@ -420,11 +447,12 @@ import {
   initStore, startSingle, startLan, exitToEntry,
   useBonus, confirmDefend, giveUpHeal, endAction, playCard, resetRoom,
   useUltimatePouch, giveUpUltimateSave, leaveGameToLobby,
+  ready as lanReady, cancelReady as lanCancelReady,
   ultimateAnimating, pouchAnimating, strategistAnimating, gameOverAnimating, gameOverPending, gameOverCountdown, gameOverShowHint, settlement, recordSummary, fetchRecord, submitSettlement, viewingRecord, fetchRecordByPid,
   spectating, exitSpectate, roomTick,
 } from './store/gameStore';
 import { authed, authUser, logout, restoreAuth, isGuest, updateNickname } from './store/authStore';
-import type { CardView, CardCategory, PlayerId } from './types/protocol';
+import type { CardView, CardCategory, PlayerId, Slot } from './types/protocol';
 
 // ===== 模式选择 =====
 function onSelectMode(mode: 'single' | 'lan'): void {
@@ -520,6 +548,27 @@ async function onSaveNickname(): Promise<void> {
   } else {
     nickErrMsg.value = '修改失败，请重试';
   }
+}
+
+// ===== 对局室(对战界面未开局时的准备区)=====
+const roomOppSlot = computed<Slot | null>(() => {
+  if (state.mySlot !== 'p1' && state.mySlot !== 'p2') return null;
+  return state.mySlot === 'p1' ? 'p2' : 'p1';
+});
+const roomTable = computed(() => state.tables.find(t => t.id === state.myTableId) || null);
+const roomOppSeat = computed(() => (roomOppSlot.value ? roomTable.value?.[roomOppSlot.value] : null));
+const roomOppName = computed(() => roomOppSeat.value?.name || '');
+const roomOppReady = computed(() => !!roomOppSeat.value?.ready);
+const roomOppPresent = computed(() => !!roomOppSeat.value?.present);
+const roomMyName = computed(() => authUser.value?.nickname || '我');
+async function onRoomReady(): Promise<void> {
+  await lanReady();
+}
+async function onRoomCancelReady(): Promise<void> {
+  await lanCancelReady();
+}
+function onRoomLeave(): void {
+  leaveGameToLobby();
 }
 
 // ===== 退出确认 =====

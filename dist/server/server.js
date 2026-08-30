@@ -142,6 +142,20 @@ function resetTable(table) {
         }
     }
 }
+/** 终止对局: 引擎重置、桌回「未准备」状态(座位保留,另一方/模拟玩家可继续准备等对手) */
+function abortGameTable(io, table, bySlot, byName, source = '') {
+    table.engine = new GameEngine_1.GameEngine();
+    table.started = false;
+    table.rematch = { p1: false, p2: false };
+    table.players.p1.ready = false;
+    table.players.p2.ready = false;
+    console.log(`[Game] 桌${table.id} 对局终止(${byName} 离开/离线${source ? ' · ' + source : ''}) · 桌重置为未准备`);
+    broadcastEvent(io, table, 'eventGameAborted', { bySlot, byName });
+    broadcastEvent(io, table, 'eventRoomReset', {});
+    broadcastRoomState(io, table);
+    broadcastTableUpdate(io, table);
+    broadcastTableList(io);
+}
 function strategyToView(s) {
     return { type: s.type, layers: s.layers, remainingTurns: s.remainingTurns, sourceCardUid: s.sourceCardUid };
 }
@@ -555,10 +569,15 @@ io.on('connection', (socket) => {
         const slot = getSlotInTable(socket.id, table);
         if (!slot)
             return cb(true, { ok: true });
+        const nick = table.players[slot].name;
         clearSeat(table, slot, false);
         socket.leave(tableRoom(table.id));
         socket.data.tableId = null;
         socket.data.slot = null;
+        // 对局已结束后离开 → 终止对局,桌重置未准备(另一方可继续等对手)
+        if (table.started) {
+            abortGameTable(io, table, slot, nick, 'leave');
+        }
         // 两座都空 → 重置整桌
         if (!table.players.p1.socketId && !table.players.p2.socketId) {
             resetTable(table);
@@ -592,16 +611,9 @@ io.on('connection', (socket) => {
         socket.leave(tableRoom(table.id));
         socket.data.tableId = null;
         socket.data.slot = null;
-        // 对局进行中 → 终止对局: 引擎重置,桌回到「未准备」状态,对手(模拟玩家)留桌
-        if (gameInProgress) {
-            table.engine = new GameEngine_1.GameEngine();
-            table.started = false;
-            table.rematch = { p1: false, p2: false };
-            table.players.p1.ready = false;
-            table.players.p2.ready = false;
-            console.log(`[Game] 桌${table.id} ${nick} 对局中离开 · 对局终止 · 桌重置为未准备(对手留桌)`);
-            broadcastEvent(io, table, 'eventGameAborted', { bySlot: slot, byName: nick });
-            broadcastEvent(io, table, 'eventRoomReset', {});
+        // 对局中或对局已结束 → 终止对局: 引擎重置,桌回到「未准备」状态,对手留桌可继续等
+        if (table.started) {
+            abortGameTable(io, table, slot, nick, 'standup');
         }
         // 两座都空 → 重置整桌
         if (!table.players.p1.socketId && !table.players.p2.socketId) {
@@ -968,6 +980,16 @@ io.on('connection', (socket) => {
         }
         table.rematch[slot] = true;
         const other = slot === 'p1' ? 'p2' : 'p1';
+        const otherSeat = table.players[other];
+        // 对方已不在桌(离开/离线): 无法再来一局 → 终止对局,桌重置未准备,玩家可继续等对手
+        if (!otherSeat.socketId) {
+            table.rematch[slot] = false;
+            const nick = otherSeat.name;
+            if (otherSeat.userId)
+                clearSeat(table, other, false);
+            abortGameTable(io, table, other, nick, 'rematch-absent');
+            return cb(false, { error: '对方已离开,无法再来一局 · 已重置,可继续等待对手' });
+        }
         if (!table.rematch[other]) {
             // 单方确认 → 等待对方
             broadcastEvent(io, table, 'eventRematchRequest', { slot });
@@ -1123,14 +1145,7 @@ io.on('connection', (socket) => {
                 }
                 clearSeat(table, slot, false);
                 if (table.started) {
-                    table.engine = new GameEngine_1.GameEngine();
-                    table.started = false;
-                    table.rematch = { p1: false, p2: false };
-                    table.players.p1.ready = false;
-                    table.players.p2.ready = false;
-                    console.log(`[Game] 桌${table.id} ${nick} 离线超时 · 对局终止 · 桌重置为未准备(对手留桌)`);
-                    broadcastEvent(io, table, 'eventGameAborted', { bySlot: slot, byName: nick });
-                    broadcastEvent(io, table, 'eventRoomReset', {});
+                    abortGameTable(io, table, slot, nick, 'disconnect-over');
                 }
                 if (!table.players.p1.socketId && !table.players.p2.socketId) {
                     resetTable(table);
@@ -1138,6 +1153,11 @@ io.on('connection', (socket) => {
                 broadcastTableUpdate(io, table);
                 broadcastTableList(io);
             }, 90000).unref?.();
+        }
+        else if (table.started) {
+            // 对局已结束后断线 → 终止对局,桌重置未准备(另一方回大厅可继续等对手)
+            const nick = table.players[slot].name;
+            abortGameTable(io, table, slot, nick);
         }
         // 两座都空 → 重置整桌
         if (!table.players.p1.socketId && !table.players.p2.socketId) {

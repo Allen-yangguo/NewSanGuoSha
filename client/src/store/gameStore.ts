@@ -404,7 +404,11 @@ export function initStore(): void {
     if (!d || !d.gameOver) clearPlayedCards();
   });
   socket.on('eventPlayerLeave', (d) => {
-    pushToast(`⚠ 玩家 ${d.slot === 'p1' ? '1' : '2'} 已断开连接`);
+    if (state.started && !state.gameOver) {
+      pushToast(`⚠ 对方已断开连接 · 等待重连`);
+    } else {
+      pushToast(`⚠ 对方已离开`);
+    }
   });
   socket.on('eventGameAborted', (d) => {
     pushToast(`⚠ 对局已终止（${d.byName} 离开）· 可继续准备`);
