@@ -290,7 +290,7 @@ function buildStrategists(): CardDef[] {
     {
       id: 'zhouyu', name: '周瑜', category: CardCategory.Strategist,
       subtype: StrategistType.ZhouYu, value: 0, cost: 0,
-      desc: '智者 · 缺/残两锦囊 · 缺(火烧连营/鱼鳞阵) · 残(大乔清气/孙尚香偷急)',
+      desc: '智者 · 缺/残两锦囊 · 缺(火烧连营/鱼鳞阵) · 残(大乔清气/孙尚香偷红色锦囊)',
     },
     {
       id: 'simayi', name: '司马懿', category: CardCategory.Strategist,
@@ -320,14 +320,14 @@ export function buildLimitedCards(): CardDef[] {
       value: g.value, cost: g.cost, desc: `限定武将 · 攻 ${g.value} · 耗气 ${g.cost}`,
     });
   }
-  // 周瑜残锦囊：大乔（清空敌方气量）/ 孙尚香（偷取敌方急锦囊）——魅惑系列
+  // 周瑜残锦囊：大乔（清空敌方气量）/ 孙尚香（偷取敌方红色锦囊随机一个）——魅惑系列
   out.push({
     id: 'daqiao', name: '大乔', category: CardCategory.Charm, subtype: CharmType.DaQiao,
     value: 0, cost: 0, desc: '魅惑 · 打出直接清空敌方当前气量（不改上限、不清状态标记）',
   });
   out.push({
     id: 'sunshangxiang', name: '孙尚香', category: CardCategory.Charm, subtype: CharmType.SunShangXiang,
-    value: 0, cost: 0, desc: '魅惑 · 偷取敌方【急】锦囊标记 · 敌方无急锦囊则出牌完全无效',
+    value: 0, cost: 0, desc: '魅惑 · 偷取敌方红色锦囊(诸葛亮)随机一个 · 敌方无红色锦囊则出牌完全无效',
   });
   // 司马懿残锦囊：红血三将 攻8耗5（锦囊产出武将攻击力+2）
   const simaSpecials: Array<{ id: string; name: string }> = [

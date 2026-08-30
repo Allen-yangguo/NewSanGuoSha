@@ -127,24 +127,44 @@ function main() {
         assert(e.state.players[enemy].qi === 0, `大乔清空敌方气量（9 → ${e.state.players[enemy].qi}）`);
     }
     {
-        // 孙尚香：偷取敌方急锦囊
+        // 孙尚香：偷取敌方红色锦囊（诸葛亮）随机一个
         const e = freshEngine();
         const fp = 0, enemy = 1;
         e.state.players[fp].pouches.zhouyu = { que: false, can: true, ji: false };
         e.state.players[fp].hp = 1;
-        e.state.players[enemy].pouches.zhuge = { que: false, can: false, ji: true };
+        e.state.players[enemy].pouches.zhuge = { que: true, can: true, ji: true };
         const r = e.usePouch(fp, 'zhouyu', types_1.PouchType.Can, 'sunshangxiang');
         assert(r.ok, '孙尚香入手牌');
         const r2 = (0, CardEffect_1.applyCardEffect)(e, inst('sunshangxiang', 't_ssx'), fp);
         assert(r2.ok, '孙尚香打出成功');
-        assert(!e.state.players[enemy].pouches.zhuge.ji, '敌方急锦囊被偷走');
-        assert(e.state.players[fp].pouches.zhuge && e.state.players[fp].pouches.zhuge.ji, '我方获得急锦囊');
-        // 敌方无急锦囊时: 出牌成功(正常消耗)但完全无效
+        // 敌方缺/残/急三标记中随机被偷走一个（剩 2），我方随机获得一个（1）
+        const enemyZhuge = e.state.players[enemy].pouches.zhuge;
+        const myZhuge = e.state.players[fp].pouches.zhuge;
+        const enemyCount = [enemyZhuge.que, enemyZhuge.can, enemyZhuge.ji].filter(Boolean).length;
+        const myCount = [myZhuge.que, myZhuge.can, myZhuge.ji].filter(Boolean).length;
+        assert(enemyCount === 2, `敌方随机被偷走一个（剩 ${enemyCount} 个）`);
+        assert(myCount === 1, `我方随机获得一个（${myCount} 个）`);
+        assert(myZhuge.que === !enemyZhuge.que, '缺锦囊：我方获得 ⇔ 敌方失去');
+        assert(myZhuge.can === !enemyZhuge.can, '残锦囊：我方获得 ⇔ 敌方失去');
+        assert(myZhuge.ji === !enemyZhuge.ji, '急锦囊：我方获得 ⇔ 敌方失去');
+        // 确定性：mock Math.random=0 → 偷取缺锦囊
+        const origRandom = Math.random;
+        Math.random = () => 0;
         const e2 = freshEngine();
         e2.state.players[0].hand.push(inst('sunshangxiang', 't2_ssx'));
+        e2.state.players[1].pouches.zhuge = { que: true, can: true, ji: true };
         const r3 = (0, CardEffect_1.applyCardEffect)(e2, inst('sunshangxiang', 't2_ssx'), 0);
-        assert(r3.ok, '敌方无急锦囊时孙尚香仍可打出（只是完全无效）');
-        assert(!e2.state.players[0].hand.some(c => c.def.id === 'sunshangxiang'), '孙尚香正常消耗（不在手牌）');
+        Math.random = origRandom;
+        assert(r3.ok, '孙尚香打出成功（mock random）');
+        assert(!e2.state.players[1].pouches.zhuge.que, 'mock random=0 → 偷走敌方缺锦囊');
+        assert(e2.state.players[0].pouches.zhuge && e2.state.players[0].pouches.zhuge.que, '我方获得缺锦囊');
+        // 敌方无诸葛亮锦囊时: 出牌成功(正常消耗)但完全无效
+        const e3 = freshEngine();
+        e3.state.players[0].hand.push(inst('sunshangxiang', 't3_ssx'));
+        const r4 = (0, CardEffect_1.applyCardEffect)(e3, inst('sunshangxiang', 't3_ssx'), 0);
+        assert(r4.ok, '敌方无红色锦囊时孙尚香仍可打出（只是完全无效）');
+        assert(!e3.state.players[0].hand.some(c => c.def.id === 'sunshangxiang'), '孙尚香正常消耗（不在手牌）');
+        assert(!e3.state.players[0].pouches.zhuge, '我方未获得任何锦囊');
     }
     console.log('\n=== 司马懿：坚壁清野 2 层龟背阵 ===');
     {

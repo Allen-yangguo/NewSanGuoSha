@@ -281,18 +281,28 @@ class GameEngine {
     playSunShangXiang(card, actor) {
         const me = this.state.players[actor];
         const enemy = this.state.players[(1 - actor)];
-        const targetKey = Object.keys(enemy.pouches).find(k => enemy.pouches[k].ji);
         this.consumeCard(actor, card);
-        if (!targetKey) {
-            this.log(`玩家${actor + 1} 打出【孙尚香】· 敌方无急锦囊 · 出牌完全无效（牌已打出消耗）`);
-            return { ok: true, message: '孙尚香 · 敌方无急锦囊 · 出牌完全无效', triggeredCharm: true };
+        // 偷取敌方「红色锦囊」(诸葛亮·蜀): 从缺/残/急中随机偷取一个
+        const zhuge = enemy.pouches.zhuge;
+        if (!zhuge || (!zhuge.que && !zhuge.can && !zhuge.ji)) {
+            this.log(`玩家${actor + 1} 打出【孙尚香】· 敌方无诸葛亮锦囊 · 出牌完全无效（牌已打出消耗）`);
+            return { ok: true, message: '孙尚香 · 敌方无红色锦囊 · 出牌完全无效', triggeredCharm: true };
         }
-        enemy.pouches[targetKey].ji = false;
-        if (!me.pouches[targetKey])
-            me.pouches[targetKey] = { que: false, can: false, ji: false };
-        me.pouches[targetKey].ji = true;
-        this.log(`玩家${actor + 1} 打出【孙尚香】· 偷取敌方急锦囊`);
-        return { ok: true, message: '孙尚香 · 成功偷取敌方【急】锦囊', triggeredCharm: true };
+        const avail = [];
+        if (zhuge.que)
+            avail.push(types_1.PouchType.Que);
+        if (zhuge.can)
+            avail.push(types_1.PouchType.Can);
+        if (zhuge.ji)
+            avail.push(types_1.PouchType.Ji);
+        const picked = avail[Math.floor(Math.random() * avail.length)];
+        zhuge[picked] = false;
+        if (!me.pouches.zhuge)
+            me.pouches.zhuge = { que: false, can: false, ji: false };
+        me.pouches.zhuge[picked] = true;
+        const name = picked === types_1.PouchType.Que ? '缺' : picked === types_1.PouchType.Can ? '残' : '急';
+        this.log(`玩家${actor + 1} 打出【孙尚香】· 偷取敌方诸葛亮【${name}】锦囊`);
+        return { ok: true, message: `孙尚香 · 偷取敌方【${name}】锦囊`, triggeredCharm: true };
     }
     /** 功能-补气：+气量 */
     playFunctionQi(card, actor) {
