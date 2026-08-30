@@ -970,7 +970,7 @@ io.on('connection', (socket: Socket) => {
     broadcastRoomState(io, table);
   });
 
-  // ---------- 绝杀急救阶段：使用急锦囊自救 ----------
+  // ---------- 绝杀急救阶段：使用急锦囊自救(抽丹,动画后由 settleUltimateSave 结算) ----------
   socket.on('useUltimatePouch', (_payload: any, ack) => {
     const cb: (ok: boolean, data: any) => void = typeof ack === 'function' ? ack : () => {};
     const table = getTable(socket);
@@ -978,15 +978,28 @@ io.on('connection', (socket: Socket) => {
     const pid = getPidBySocket(socket);
     if (pid === null) return cb(false, { error: '未入桌' });
     if (table.engine.ultimateSavePending !== pid) return cb(false, { error: '非绝杀急救阶段' });
-    const r = table.engine.useUltimatePouch(pid);
+    const r = table.engine.useUltimatePouch(pid); // 仅抽丹并记录结果,不结算
     if (!r.ok) return cb(false, { error: r.message });
     broadcastEvent(io, table, 'eventUltimateSave', { actorPid: pid, saved: !!r.saved, message: r.message });
+    cb(true, r);
+    broadcastRoomState(io, table); // 推送急锦囊已消耗、等待结算
+  });
+
+  // ---------- 绝杀急救抽丹动画播完 → 结算(绝疗丹保命 / 还魂丹死亡) ----------
+  socket.on('settleUltimateSave', (_payload: any, ack) => {
+    const cb: (ok: boolean, data: any) => void = typeof ack === 'function' ? ack : () => {};
+    const table = getTable(socket);
+    if (!table) return cb(false, { error: '未入桌' });
+    const pid = getPidBySocket(socket);
+    if (pid === null) return cb(false, { error: '未入桌' });
+    const r = table.engine.settleUltimateSave(pid);
+    if (!r.ok) return cb(false, { error: r.message });
     if (table.engine.state.gameOver) {
       broadcastEvent(io, table, 'eventGameOver', {
         winner: table.engine.state.result?.winner ?? null,
         reason: table.engine.state.result?.reason ?? null,
         detail: table.engine.state.result?.detail ?? null,
-      instant: table.engine.gameOverInstant,
+        instant: table.engine.gameOverInstant,
       });
       broadcastSettlement(io, table);
     }

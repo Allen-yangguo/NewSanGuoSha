@@ -548,8 +548,14 @@ function connectBot(bot: BotInstance, serverUrl: string): void {
       return;
     }
     if (room.ultimateSavePid === room.yourPid) {
-      // 被绝杀击杀且有急锦囊: 自动使用急锦囊自救(50% 绝疗丹)
-      scheduleThink(bot, () => emitAck(bot.socket!, 'useUltimatePouch', {}), thinkDelay('emg'));
+      // 被绝杀击杀且有急锦囊: 自动使用急锦囊自救(50% 绝疗丹),模拟抽丹动画后结算
+      scheduleThink(bot, () => {
+        emitAck(bot.socket!, 'useUltimatePouch', {}).then(() => {
+          setTimeout(() => {
+            if (bot.socket && !bot.socket.disconnected) emitAck(bot.socket!, 'settleUltimateSave', {});
+          }, 1500).unref?.();
+        });
+      }, thinkDelay('emg'));
       return;
     }
     if (room.defensePid === room.yourPid) {

@@ -239,14 +239,17 @@ export class LocalEngine {
   }
 
   useUltimatePouch(): { ok: boolean; message: string; saved?: boolean } {
-    const result = this.engine.useUltimatePouch(HUMAN_PID) as any;
+    const result = this.engine.useUltimatePouch(HUMAN_PID) as any; // 抽丹(不结算)
     if (result.ok) {
+      // 单机即时结算(不做抽丹动画)
+      const settled = this.engine.settleUltimateSave(HUMAN_PID) as any;
       this.pushState();
       if (this.engine.state.gameOver) {
         this.fireGameOver();
-        return result;
+        return { ...result, saved: settled?.saved };
       }
       this.maybeScheduleAI();
+      return { ...result, saved: settled?.saved };
     }
     return result;
   }
@@ -317,6 +320,7 @@ export class LocalEngine {
     // 绝杀急救：AI 被绝杀击至 0 血,自动选择使用急锦囊(50% 绝疗丹)
     if (this.engine.ultimateSavePending === AI_PID) {
       this.engine.useUltimatePouch(AI_PID);
+      this.engine.settleUltimateSave(AI_PID); // 单机即时结算
       this.pushState();
       if (this.engine.state.gameOver) { this.fireGameOver(); return; }
       this.maybeScheduleAI();

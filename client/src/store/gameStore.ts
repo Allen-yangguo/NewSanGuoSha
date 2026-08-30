@@ -4,7 +4,7 @@
  *   - single: 单机 vs AI（本地引擎）
  *   - lan: 局域网联机（Socket.IO）
  */
-import { reactive, ref, computed } from 'vue';
+import { reactive, ref, computed, watch } from 'vue';
 import { getSocket, emit, disconnectSocket } from '../api/socket';
 import { soundManager, type SfxType } from '../audio/SoundManager';
 import { LocalEngine } from '../engine/localEngine';
@@ -664,6 +664,14 @@ export async function giveUpHeal(): Promise<{ ok: boolean; msg: string }> {
 }
 
 /** 绝杀急救：使用急锦囊自救（50% 绝疗丹保命 / 还魂丹死亡） */
+let ultimateSettlePending = false;
+// 抽丹轮盘动画播完后 → 通知服务端结算(绝疗丹保命/还魂丹死亡)
+watch(pouchAnimating, (v) => {
+  if (v === null && ultimateSettlePending) {
+    ultimateSettlePending = false;
+    try { emit('settleUltimateSave', {}); } catch { /* ignore */ }
+  }
+});
 export async function useUltimatePouch(): Promise<{ ok: boolean; msg: string; saved?: boolean }> {
   if (gameMode.value === 'single' && localEngine) {
     const r = localEngine.useUltimatePouch();
@@ -671,8 +679,13 @@ export async function useUltimatePouch(): Promise<{ ok: boolean; msg: string; sa
     return { ok: r.ok, msg: r.message, saved: (r as any).saved };
   }
   const { ok, data } = await emit('useUltimatePouch', {});
-  if (!ok) pushToast('❌ ' + (data?.error || '操作失败'));
-  return { ok, msg: data?.message || data?.error || '', saved: data?.saved };
+  if (!ok) { pushToast('❌ ' + (data?.error || '操作失败')); return { ok, msg: data?.error || '' }; }
+  const saved = !!data?.saved;
+  const danName = saved ? '绝疗丹' : '还魂丹';
+  // 播放抽丹轮盘动画,动画播完后触发 settleUltimateSave 结算
+  triggerPouchAnim(['还魂丹', '绝疗丹'], danName);
+  ultimateSettlePending = true;
+  return { ok, msg: data?.message || '', saved };
 }
 
 /** 绝杀急救：放弃自救，接受败北 */

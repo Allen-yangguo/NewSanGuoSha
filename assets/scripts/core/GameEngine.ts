@@ -87,6 +87,8 @@ export class GameEngine {
   emergencyHealPending: PlayerId | null = null;
   /** 绝杀急救等待中（绝杀打至 0 血，可手动选择使用急锦囊抽绝疗丹自救） */
   ultimateSavePending: PlayerId | null = null;
+  /** 绝杀急救抽丹结果(等待客户端播放抽丹动画后再结算) */
+  ultimateSaveResult: { saved: boolean } | null = null;
   /** 本次 gameOver 是否由系统直接判定(玩家无最后决策;UI 据此决定是否显示「惜乎」过渡文案) */
   gameOverInstant: boolean = false;
   /** 历史日志（用于 UI 显示与调试） */
@@ -920,6 +922,7 @@ export class GameEngine {
   /**
    * 绝杀急救阶段：玩家选择使用急锦囊
    * 50% 抽到绝疗丹保 1 血 / 50% 抽到还魂丹直接死亡（消耗急锦囊标记）
+   * 仅抽丹并记录结果；实际结算由 settleUltimateSave 在客户端抽丹动画结束后触发
    */
   useUltimatePouch(pid: PlayerId): EffectResult {
     if (this.ultimateSavePending !== pid) return { ok: false, message: '非绝杀急救阶段' };
@@ -930,16 +933,28 @@ export class GameEngine {
     target.pouches[jiKey].ji = false;
     this.ultimateSavePending = null;
     const gotJueLiao = Math.random() < 0.5;
-    if (gotJueLiao) {
+    this.ultimateSaveResult = { saved: gotJueLiao };
+    const danName = gotJueLiao ? '绝疗丹' : '还魂丹';
+    this.log(`玩家${pid + 1} 使用急锦囊 · 抽中【${danName}】`);
+    return { ok: true, message: `抽中【${danName}】`, saved: gotJueLiao };
+  }
+
+  /** 绝杀急救抽丹结算(客户端抽丹动画播完后调用): 绝疗丹保 1 血 / 还魂丹死亡 */
+  settleUltimateSave(pid: PlayerId): EffectResult {
+    const res = this.ultimateSaveResult;
+    if (!res) return { ok: false, message: '非绝杀急救结算阶段' };
+    this.ultimateSaveResult = null;
+    const target = this.state.players[pid];
+    if (res.saved) {
       target.hp = 1;
       target.overkill = 0;
-      this.log(`玩家${pid + 1} 使用急锦囊 · 抽中【绝疗丹】· 绝杀下保 1 血`);
-      return { ok: true, message: '抽中绝疗丹 · 保 1 血', saved: true };
+      this.log(`玩家${pid + 1} 【绝疗丹】生效 · 绝杀下保 1 血`);
+      return { ok: true, message: '绝疗丹保命', saved: true };
     }
-    this.log(`玩家${pid + 1} 使用急锦囊 · 抽中【还魂丹】· 绝杀无效 · 死亡`);
     this.gameOverInstant = false; // 玩家最后决策(使用急锦囊)后判负
     this.state.checkGameOver();
-    return { ok: true, message: '抽中还魂丹 · 死亡', saved: false };
+    this.log(`玩家${pid + 1} 【还魂丹】无效 · 绝杀下死亡`);
+    return { ok: true, message: '还魂丹无效 · 死亡', saved: false };
   }
 
   /** 绝杀急救阶段：玩家放弃使用急锦囊，直接判负 */

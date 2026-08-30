@@ -185,6 +185,8 @@ export interface ClientEvents {
   giveUpEmergencyHeal: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   useUltimatePouch: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   giveUpUltimateSave: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
+  /** 绝杀急救抽丹动画播完 → 结算(绝疗丹保命/还魂丹死亡) */
+  settleUltimateSave: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   /** 对局中主动离开(强退: 扣 50 分;模拟玩家留桌,桌重置为未准备) */
   leaveGame: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   /** 对局结束动画播完 → 请求把桌重置为未准备(回准备区重新点准备) */
