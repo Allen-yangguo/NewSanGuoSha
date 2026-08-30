@@ -306,13 +306,13 @@ function buildStrategists(): CardDef[] {
  */
 export function buildLimitedCards(): CardDef[] {
   const out: CardDef[] = [];
-  // 诸葛亮残锦囊：蛇矛张飞/偃月关羽/龙胆赵云 攻6耗5 · 方天吕布 攻7耗5 · 三英 攻8耗5
+  // 诸葛亮残锦囊：蛇矛张飞/偃月关羽/龙胆赵云 攻8耗5 · 方天吕布 攻9耗5 · 三英 攻10耗5（锦囊产出武将攻击力+2）
   const zhugeSpecials: Array<{ id: string; name: string; value: number; cost: number }> = [
-    { id: 'zhangfei_shemiao', name: '蛇矛张飞', value: 6, cost: 5 },
-    { id: 'guanyu_yanyue', name: '偃月关羽', value: 6, cost: 5 },
-    { id: 'zhaoyun_longdan', name: '龙胆赵云', value: 6, cost: 5 },
-    { id: 'lubu_fangtian', name: '方天吕布', value: 7, cost: 5 },
-    { id: 'sanying', name: '三英', value: 8, cost: 5 },
+    { id: 'zhangfei_shemiao', name: '蛇矛张飞', value: 8, cost: 5 },
+    { id: 'guanyu_yanyue', name: '偃月关羽', value: 8, cost: 5 },
+    { id: 'zhaoyun_longdan', name: '龙胆赵云', value: 8, cost: 5 },
+    { id: 'lubu_fangtian', name: '方天吕布', value: 9, cost: 5 },
+    { id: 'sanying', name: '三英', value: 10, cost: 5 },
   ];
   for (const g of zhugeSpecials) {
     out.push({
@@ -329,7 +329,7 @@ export function buildLimitedCards(): CardDef[] {
     id: 'sunshangxiang', name: '孙尚香', category: CardCategory.Charm, subtype: CharmType.SunShangXiang,
     value: 0, cost: 0, desc: '魅惑 · 偷取敌方【急】锦囊标记 · 敌方无急锦囊则出牌完全无效',
   });
-  // 司马懿残锦囊：红血三将 攻6耗5
+  // 司马懿残锦囊：红血三将 攻8耗5（锦囊产出武将攻击力+2）
   const simaSpecials: Array<{ id: string; name: string }> = [
     { id: 'xuchu_hongxue', name: '红血许褚' },
     { id: 'dianwei_hongxue', name: '红血典韦' },
@@ -338,7 +338,7 @@ export function buildLimitedCards(): CardDef[] {
   for (const g of simaSpecials) {
     out.push({
       id: g.id, name: g.name, category: CardCategory.General, subtype: GeneralTier.Limited,
-      value: 6, cost: 5, desc: '限定武将 · 攻 6 · 耗气 5',
+      value: 8, cost: 5, desc: '限定武将 · 攻 8 · 耗气 5',
     });
   }
   // 丹药：还魂丹（仅救普通攻击致死）/ 绝疗丹（普通与绝杀均有效）

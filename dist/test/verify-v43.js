@@ -270,17 +270,21 @@ function main() {
         assert(e.state.players[enemy].hp === 0, '绝杀击至 0 血');
         assert(e.ultimateSavePending === enemy, '进入绝杀急救等待（ultimateSavePending）');
         assert(!e.state.gameOver, '未立即判负（等待玩家选择）');
-        // 使用急锦囊 → 抽中绝疗丹 → 保命
+        // 使用急锦囊 → 抽中绝疗丹 → 抽丹后结算 → 保命
         const origRandom = Math.random;
         Math.random = () => 0.1; // < 0.5 → 绝疗丹
         const r = e.useUltimatePouch(enemy);
         Math.random = origRandom;
-        assert(r.ok && r.saved === true, `使用急锦囊 · 抽中绝疗丹保 1 血（saved=${r.saved}）`);
-        assert(e.state.players[enemy].hp === 1 && !e.state.gameOver, '保 1 血');
+        assert(r.ok && r.saved === true, `使用急锦囊 · 抽中绝疗丹（saved=${r.saved}）`);
+        assert(e.state.players[enemy].hp === 0 && !e.state.gameOver, '抽丹阶段未结算(hp 仍 0,等待结算)');
         assert(!e.state.players[enemy].pouches.zhuge.ji, '急锦囊已消耗');
+        // 结算: 绝疗丹保 1 血
+        const settled = e.settleUltimateSave(enemy);
+        assert(settled.ok && settled.saved === true, '结算 · 绝疗丹保 1 血');
+        assert(e.state.players[enemy].hp === 1 && !e.state.gameOver, '保 1 血');
     }
     {
-        // 使用急锦囊 → 抽中还魂丹 → 死亡
+        // 使用急锦囊 → 抽中还魂丹 → 抽丹后结算 → 死亡
         const e = freshEngine();
         const fp = 0, enemy = 1;
         e.state.players[enemy].pouches.zhuge = { que: false, can: false, ji: true };
@@ -293,7 +297,9 @@ function main() {
         const r = e.useUltimatePouch(enemy);
         Math.random = origRandom;
         assert(r.ok && r.saved === false, '使用急锦囊 · 抽中还魂丹');
-        assert(e.state.gameOver, '还魂丹 · 绝杀无效 · 死亡判负');
+        assert(!e.state.gameOver, '抽丹阶段未结算');
+        const settled = e.settleUltimateSave(enemy);
+        assert(settled.ok && e.state.gameOver, '结算 · 还魂丹 · 绝杀无效 · 死亡判负');
     }
     {
         // 放弃自救 → 直接判负
