@@ -140,12 +140,12 @@ function triggerGameOverAnim(): void {
     }
   }, 5000);
 }
-/** 延迟触发胜负动画：系统直接判负(instant)时在按钮位置展示「惜乎」白底倒计时 2s 再进动画;玩家最后决策后判负则短延迟直接进动画 */
+/** 延迟触发胜负动画：系统直接判负(instant)时在按钮位置展示「惜乎」白底倒计时 3s 再进动画;玩家最后决策后判负则短延迟直接进动画 */
 function triggerGameOverWithDelay(winner: number | null, instant: boolean): void {
   gameOverShowHint.value = !!instant;
   gameOverPending.value = true;
-  gameOverCountdown.value = instant ? 2 : 0;
-  const delayMs = instant ? 2000 : 800;
+  gameOverCountdown.value = instant ? 3 : 0;
+  const delayMs = instant ? 3000 : 800;
   if (gameOverDelayTimer) clearTimeout(gameOverDelayTimer);
   if (gameOverCountdownTimer) clearInterval(gameOverCountdownTimer);
   if (instant) {
@@ -397,7 +397,7 @@ export function initStore(): void {
   });
   socket.on('eventGameOver', (d) => {
     gameOverWinner.value = d.winner;
-    // 延迟播放胜负动画: 系统直接判负(instant)时先展示「惜乎」2s;玩家最后决策后判负则短延迟
+    // 延迟播放胜负动画: 系统直接判负(instant)时先展示「惜乎」3s;玩家最后决策后判负则短延迟
     triggerGameOverWithDelay(d.winner, !!d.instant);
     if (d.winner === state.yourPid) {
       pushToast('🎉 恭喜你获胜！');
