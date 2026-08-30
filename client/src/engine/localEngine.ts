@@ -46,7 +46,7 @@ export interface LocalEventCallbacks {
   }) => void;
   onEventDamage: (d: { actorPid?: PlayerId; message: string }) => void;
   onEventBuffChange: (d: { actorPid: PlayerId; type: string; message: string }) => void;
-  onEventGameOver: (d: { winner: PlayerId | null; reason: string | null; detail: string | null }) => void;
+  onEventGameOver: (d: { winner: PlayerId | null; reason: string | null; detail: string | null; instant?: boolean }) => void;
   onEventGameSettlement: (d: any) => void;
   onEventTurnEnd: (d: { nextRoundCount?: number; nextFirstPid?: PlayerId; message?: string; gameOver?: boolean }) => void;
   onEventGameStart: (d: { firstPlayerPid: PlayerId }) => void;
@@ -793,6 +793,7 @@ export class LocalEngine {
       winner: s.result?.winner ?? null,
       reason: s.result?.reason ?? null,
       detail: s.result?.detail ?? null,
+      instant: this.engine.gameOverInstant,
     });
     // 结算事件
     this.cb.onEventGameSettlement(this.engine.getSettlement());

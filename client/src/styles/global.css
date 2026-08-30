@@ -88,6 +88,21 @@ a { color: #8C4A40; }
 .action-btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .action-btns .btn { flex: 1 1 auto; min-width: 88px; font-size: 14px; }
 
+/* 对局结束过渡提示(按钮位置,白底,倒计时后进动画) */
+.gameover-hint {
+  flex: 1 1 auto;
+  background: #FFFFFF;
+  border: 2px solid #E5D5AE;
+  border-radius: 10px;
+  padding: 10px 20px;
+  font-size: 15px;
+  font-weight: 800;
+  color: #B5463A;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(75, 59, 42, 0.15);
+}
+.gameover-hint .go-countdown { color: #8A6A3B; font-weight: 700; }
+
 .hand-area {
   display: flex;
   flex-wrap: nowrap;

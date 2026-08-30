@@ -113,10 +113,15 @@ function triggerStrategistAnim(id: string, name: string): void {
 
 /** 胜负过场动画（触发后 3s 自动关闭，给旗帜/跪地动画完整播放时间） */
 export const gameOverAnimating = ref(false);
-/** 游戏结束但延迟播放动画（让玩家看清最后一手出牌） */
+/** 游戏结束但延迟播放动画（让玩家看清最后一手出牌 + 展示结束语倒计时） */
 export const gameOverPending = ref(false);
+/** 对局结束提示倒计时(秒,2→0) */
+export const gameOverCountdown = ref(0);
+/** 是否显示「惜乎」结束语过渡(仅系统直接判负时显示;玩家最后决策后判负不显示) */
+export const gameOverShowHint = ref(false);
 let gameOverTimer: ReturnType<typeof setTimeout> | null = null;
 let gameOverDelayTimer: ReturnType<typeof setTimeout> | null = null;
+let gameOverCountdownTimer: ReturnType<typeof setInterval> | null = null;
 function triggerGameOverAnim(): void {
   if (gameOverTimer) clearTimeout(gameOverTimer);
   gameOverAnimating.value = true;
@@ -126,19 +131,33 @@ function triggerGameOverAnim(): void {
     clearPlayedCards();
   }, 5000);
 }
-/** 延迟触发胜负动画：先等 1.5s 让玩家看清最后出牌，再播动画 */
-function triggerGameOverWithDelay(winner: number | null): void {
+/** 延迟触发胜负动画：系统直接判负(instant)时在按钮位置展示「惜乎」白底倒计时 2s 再进动画;玩家最后决策后判负则短延迟直接进动画 */
+function triggerGameOverWithDelay(winner: number | null, instant: boolean): void {
+  gameOverShowHint.value = !!instant;
   gameOverPending.value = true;
+  gameOverCountdown.value = instant ? 2 : 0;
+  const delayMs = instant ? 2000 : 800;
   if (gameOverDelayTimer) clearTimeout(gameOverDelayTimer);
+  if (gameOverCountdownTimer) clearInterval(gameOverCountdownTimer);
+  if (instant) {
+    gameOverCountdownTimer = setInterval(() => {
+      gameOverCountdown.value -= 1;
+      if (gameOverCountdown.value <= 0) {
+        if (gameOverCountdownTimer) { clearInterval(gameOverCountdownTimer); gameOverCountdownTimer = null; }
+      }
+    }, 1000);
+  }
   gameOverDelayTimer = setTimeout(() => {
     gameOverPending.value = false;
+    gameOverCountdown.value = 0;
+    if (gameOverCountdownTimer) { clearInterval(gameOverCountdownTimer); gameOverCountdownTimer = null; }
     // 延迟结束后设置 gameOver，触发胜负弹窗显示
     state.gameOver = true;
     triggerGameOverAnim();
     if (winner === state.yourPid) playSfx('win');
     else if (winner === null) playSfx('draw');
     else playSfx('lose');
-  }, 1800);
+  }, delayMs);
 }
 
 function addPlayedCard(card: any, actorPid: number, attackPower?: number): void {
@@ -359,8 +378,8 @@ export function initStore(): void {
     else if (d.type === 'burst') playSfx('strategy');
   });
   socket.on('eventGameOver', (d) => {
-    // 延迟播放胜负动画：先等 1.8s 让玩家看清最后一手出牌
-    triggerGameOverWithDelay(d.winner);
+    // 延迟播放胜负动画: 系统直接判负(instant)时先展示「惜乎」2s;玩家最后决策后判负则短延迟
+    triggerGameOverWithDelay(d.winner, !!d.instant);
     if (d.winner === state.yourPid) {
       pushToast('🎉 恭喜你获胜！');
     } else if (d.winner === null) {
@@ -428,7 +447,7 @@ export function startSingle(): void {
       else if (d.type === 'burst') playSfx('strategy');
     },
     onEventGameOver: (d) => {
-      triggerGameOverAnim();
+      triggerGameOverWithDelay(d.winner, !!d.instant);
       if (d.winner === state.yourPid) { pushToast('🎉 恭喜你获胜！'); playSfx('win'); }
       else if (d.winner === null) { pushToast('🤝 平局'); playSfx('draw'); }
       else { pushToast('💀 你输了，下次再战！'); playSfx('lose'); }
@@ -509,8 +528,11 @@ export function exitToEntry(): void {
   ultimateAnimating.value = false;
   gameOverAnimating.value = false;
   gameOverPending.value = false;
+  gameOverCountdown.value = 0;
+  gameOverShowHint.value = false;
   settlement.value = null;
   if (gameOverDelayTimer) { clearTimeout(gameOverDelayTimer); gameOverDelayTimer = null; }
+  if (gameOverCountdownTimer) { clearInterval(gameOverCountdownTimer); gameOverCountdownTimer = null; }
   clearPlayedCards();
   // 清空大厅状态
   state.tables = [];

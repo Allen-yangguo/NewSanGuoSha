@@ -160,6 +160,12 @@
 
         <!-- 操作按钮区：补气按钮 / 结束回合 / 确认防御 / 放弃救血（旁观模式隐藏） -->
         <div class="action-btns" v-if="!spectating">
+          <!-- 对局结束过渡: 仅系统直接判负时显示结束语(白底) + 2s 倒计时,之后进入过场动画;玩家最后决策后判负则不显示,短延迟直接进动画 -->
+          <div v-if="gameOverPending && gameOverShowHint" class="gameover-hint">
+            {{ gameOverText }}
+            <span v-if="gameOverCountdown > 0" class="go-countdown">（{{ gameOverCountdown }}s）</span>
+          </div>
+          <template v-else-if="!gameOverPending">
           <button
             class="btn qi"
             :disabled="!canUseNormalQi"
@@ -205,6 +211,7 @@
             class="btn gold"
             @click="resetRoom"
           >再来一局（重置房间）</button>
+          </template>
         </div>
 
         <!-- 手牌区（只有自己能看到；旁观模式只读展示） -->
@@ -413,7 +420,7 @@ import {
   initStore, startSingle, startLan, exitToEntry,
   useBonus, confirmDefend, giveUpHeal, endAction, playCard, resetRoom,
   useUltimatePouch, giveUpUltimateSave, leaveGameToLobby,
-  ultimateAnimating, pouchAnimating, strategistAnimating, gameOverAnimating, settlement, recordSummary, fetchRecord, submitSettlement, viewingRecord, fetchRecordByPid,
+  ultimateAnimating, pouchAnimating, strategistAnimating, gameOverAnimating, gameOverPending, gameOverCountdown, gameOverShowHint, settlement, recordSummary, fetchRecord, submitSettlement, viewingRecord, fetchRecordByPid,
   spectating, exitSpectate, roomTick,
 } from './store/gameStore';
 import { authed, authUser, logout, restoreAuth, isGuest, updateNickname } from './store/authStore';
@@ -590,6 +597,13 @@ watch(roomTick, () => {
   else stopDecisionCountdown();
 });
 onBeforeUnmount(stopDecisionCountdown);
+
+// ===== 对局结束过渡文案(按钮位置,白底,倒计时后进动画) =====
+const gameOverText = computed(() => {
+  if (state.winner === state.yourPid) return '🎉 大获全胜！';
+  if (state.winner === null) return '不分胜负 · 握手言和';
+  return '惜乎！你已无力回天。';
+});
 
 // ===== 锦囊轮盘动画：光圈位置（等宽候选牌，取第 i 张中心）=====
 const ringLeft = computed(() => {

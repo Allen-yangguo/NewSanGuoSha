@@ -41,6 +41,8 @@ class GameEngine {
         this.emergencyHealPending = null;
         /** 绝杀急救等待中（绝杀打至 0 血，可手动选择使用急锦囊抽绝疗丹自救） */
         this.ultimateSavePending = null;
+        /** 本次 gameOver 是否由系统直接判定(玩家无最后决策;UI 据此决定是否显示「惜乎」过渡文案) */
+        this.gameOverInstant = false;
         /** 历史日志（用于 UI 显示与调试） */
         this.logs = [];
         /** 单局得分追踪 */
@@ -339,6 +341,7 @@ class GameEngine {
                     this.emergencyHealPending = null;
                     p.overkill = 0;
                     this.log(`玩家${actor + 1} 剩余补血 ${remaining} 不足 · 无法挽救`);
+                    this.gameOverInstant = false; // 玩家最后决策(补血)后判负
                     this.state.checkGameOver();
                     return { ok: true, message: '补血不足 · 无法挽救', triggeredHeal: true };
                 }
@@ -788,6 +791,7 @@ class GameEngine {
                     return;
                 }
                 this.log(`玩家${targetId + 1} 被绝杀击杀 · 不可急救`);
+                this.gameOverInstant = true; // 系统直接判定(无最后决策)
                 this.state.checkGameOver();
             }
             else {
@@ -805,6 +809,7 @@ class GameEngine {
                 else {
                     // 无救 → 直接判负
                     this.log(`玩家${targetId + 1} 补血量 ${totalHeal} 不足覆盖溢出 ${overkill} · 无法挽救`);
+                    this.gameOverInstant = true; // 系统直接判定(无救)
                     this.state.checkGameOver();
                 }
             }
@@ -853,6 +858,7 @@ class GameEngine {
             return { ok: true, message: '抽中绝疗丹 · 保 1 血', saved: true };
         }
         this.log(`玩家${pid + 1} 使用急锦囊 · 抽中【还魂丹】· 绝杀无效 · 死亡`);
+        this.gameOverInstant = false; // 玩家最后决策(使用急锦囊)后判负
         this.state.checkGameOver();
         return { ok: true, message: '抽中还魂丹 · 死亡', saved: false };
     }
@@ -862,6 +868,7 @@ class GameEngine {
             return { ok: false, message: '非绝杀急救阶段' };
         this.ultimateSavePending = null;
         this.log(`玩家${pid + 1} 放弃急锦囊自救 · 接受败北`);
+        this.gameOverInstant = false; // 玩家最后决策(放弃)后判负
         this.state.checkGameOver();
         return { ok: true, message: '游戏结束' };
     }
@@ -878,6 +885,7 @@ class GameEngine {
         const id = this.emergencyHealPending;
         this.emergencyHealPending = null;
         this.log(`玩家${id + 1} 放弃补血 · 接受败北`);
+        this.gameOverInstant = false; // 玩家最后决策(放弃救血)后判负
         this.state.checkGameOver();
         return { ok: true, message: '游戏结束' };
     }
@@ -988,6 +996,7 @@ class GameEngine {
             }
         }
         this.log(`回合结算 · ${qiRecovery ? '双方各 +1 气 · ' : ''}兵法倒计时 -1`);
+        this.gameOverInstant = true; // 回合终局系统判定(牌库耗尽等)
         if (this.state.checkGameOver())
             return;
         // 2. 补牌阶段

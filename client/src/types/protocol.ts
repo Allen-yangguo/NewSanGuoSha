@@ -216,7 +216,7 @@ export interface ServerEvents {
   eventPouchUsed: (data: { actorPid: PlayerId; message: string }) => void;
   eventDamage: (data: { actorPid?: PlayerId; message: string }) => void;
   eventBuffChange: (data: { actorPid: PlayerId; type: string; message: string }) => void;
-  eventGameOver: (data: { winner: PlayerId | null; reason: string | null; detail: string | null }) => void;
+  eventGameOver: (data: { winner: PlayerId | null; reason: string | null; detail: string | null; instant?: boolean }) => void;
   eventGameSettlement: (data: GameSettlementView) => void;
   eventTurnEnd: (data: { nextRoundCount?: number; nextFirstPid?: PlayerId; message?: string; gameOver?: boolean }) => void;
   eventUltimateSave: (data: { actorPid: PlayerId; saved: boolean; message: string }) => void;

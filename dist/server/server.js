@@ -365,6 +365,7 @@ function tryAutoEndAction(io, table) {
                 winner: table.engine.state.result?.winner ?? null,
                 reason: table.engine.state.result?.reason ?? null,
                 detail: table.engine.state.result?.detail ?? null,
+                instant: table.engine.gameOverInstant,
             });
             broadcastSettlement(io, table);
         }
@@ -713,6 +714,7 @@ io.on('connection', (socket) => {
                 winner: table.engine.state.result?.winner ?? null,
                 reason: table.engine.state.result?.reason ?? null,
                 detail: table.engine.state.result?.detail ?? null,
+                instant: table.engine.gameOverInstant,
             });
             broadcastSettlement(io, table);
         }
@@ -737,6 +739,7 @@ io.on('connection', (socket) => {
                             winner: table.engine.state.result?.winner ?? null,
                             reason: table.engine.state.result?.reason ?? null,
                             detail: table.engine.state.result?.detail ?? null,
+                            instant: table.engine.gameOverInstant,
                         });
                         broadcastSettlement(io, table);
                     }
@@ -827,6 +830,7 @@ io.on('connection', (socket) => {
                 winner: table.engine.state.result?.winner ?? null,
                 reason: table.engine.state.result?.reason ?? null,
                 detail: table.engine.state.result?.detail ?? null,
+                instant: table.engine.gameOverInstant,
             });
             broadcastSettlement(io, table);
         }
@@ -851,6 +855,7 @@ io.on('connection', (socket) => {
             winner: table.engine.state.result?.winner ?? null,
             reason: table.engine.state.result?.reason ?? null,
             detail: table.engine.state.result?.detail ?? null,
+            instant: table.engine.gameOverInstant,
         });
         broadcastSettlement(io, table);
         cb(true, r);
@@ -876,6 +881,7 @@ io.on('connection', (socket) => {
                 winner: table.engine.state.result?.winner ?? null,
                 reason: table.engine.state.result?.reason ?? null,
                 detail: table.engine.state.result?.detail ?? null,
+                instant: table.engine.gameOverInstant,
             });
             broadcastSettlement(io, table);
         }
@@ -901,6 +907,7 @@ io.on('connection', (socket) => {
             winner: table.engine.state.result?.winner ?? null,
             reason: table.engine.state.result?.reason ?? null,
             detail: table.engine.state.result?.detail ?? null,
+            instant: table.engine.gameOverInstant,
         });
         broadcastSettlement(io, table);
         cb(true, r);
@@ -940,6 +947,7 @@ io.on('connection', (socket) => {
                 winner: table.engine.state.result?.winner ?? null,
                 reason: table.engine.state.result?.reason ?? null,
                 detail: table.engine.state.result?.detail ?? null,
+                instant: table.engine.gameOverInstant,
             });
             broadcastSettlement(io, table);
         }
