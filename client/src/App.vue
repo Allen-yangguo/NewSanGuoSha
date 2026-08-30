@@ -78,115 +78,72 @@
     <!-- 局域网大厅：未入座 → 选桌入座 -->
     <LobbyScreen v-else-if="gameMode === 'lan' && state.myTableId === null" @exit="exitToEntry" />
 
-    <!-- 已入座(联机)/单机 → 对战界面(未开局时同一页面内显示准备区,开局后显示牌桌) -->
+    <!-- 已入座(联机)/单机 → 对战界面(未开局显示准备状态,开局后战斗) -->
     <template v-else>
-      <!-- 准备区: 未开局,自己信息 + 对方(空白/已入座) + 准备按钮 -->
-      <div v-if="!state.started" class="lobby">
-        <div class="lobby-box">
-          <div class="lobby-title">{{ gameMode === 'lan' ? `对局室 · 桌${state.myTableId}` : '单机对战' }}</div>
-
-          <!-- 双方座位信息 -->
-          <div class="room-players">
-            <!-- 自己 -->
-            <div class="room-seat mine">
-              <div class="seat-avatar">👤</div>
-              <div class="seat-name">{{ roomMyName }}</div>
-              <div class="seat-info">{{ state.mySlot?.toUpperCase() }} 座</div>
-              <div class="seat-ready" :class="{ on: state.myReady }">{{ state.myReady ? '✓ 已准备' : '未准备' }}</div>
-            </div>
-            <div class="room-vs">VS</div>
-            <!-- 对方 -->
-            <div class="room-seat" :class="{ empty: !roomOppName }">
-              <div class="seat-avatar">{{ roomOppName ? '👤' : '🪑' }}</div>
-              <div class="seat-name" :class="{ ghost: !roomOppName }">{{ roomOppName || '等待玩家入座…' }}</div>
-              <div class="seat-info">{{ roomOppName ? `${roomOppSlot?.toUpperCase()} 座` : '' }}</div>
-              <div class="seat-ready" :class="{ on: roomOppReady }">
-                {{ roomOppName ? (roomOppReady ? '✓ 已准备' : '未准备') : '' }}
-                <span v-if="roomOppName && !roomOppPresent" class="offline-hint">⌛ 掉线重连中</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 准备/离开 -->
-          <div style="display:flex;gap:8px;justify-content:center;margin-top:12px;">
-            <template v-if="gameMode === 'lan'">
-              <button v-if="!state.myReady" class="btn primary" @click="onRoomReady">准备</button>
-              <button v-else class="btn dark" @click="onRoomCancelReady">取消准备</button>
-              <button class="btn dark" @click="onRoomLeave">离开房间</button>
-            </template>
-            <template v-else>
-              <button class="btn dark" @click="exitToEntry">返回</button>
-            </template>
-          </div>
-
-          <div class="lobby-sub" style="margin-top:8px;">
-            <template v-if="gameMode === 'lan'">双方都点「准备」后自动开始战斗</template>
-            <template v-else>正在为 AI 准备...</template>
-          </div>
-          <div class="lobby-url" v-if="gameMode === 'lan'">
-            <input readonly :value="shareUrl" @click="copyShareUrl" class="share-input" />
-            <button class="btn" @click="copyShareUrl">复制网址</button>
-          </div>
+      <!-- 顶部：返回 + 静音 + 日志按钮（未开局返回=离开房间;旁观返回=退出旁观） -->
+      <div style="display:flex;justify-content:space-between;gap:6px;">
+        <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="onTopBack">← 返回</button>
+        <div style="display:flex;gap:6px;">
+          <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="showLogs = true">
+            📜 ({{ state.logs.length }})
+          </button>
+          <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="toggleMute">
+            {{ muted ? '🔇' : '🔊' }}
+          </button>
+          <MusicButton />
         </div>
       </div>
 
-      <!-- 对局主界面(开局后) -->
-      <template v-else>
-        <!-- 顶部：返回 + 静音 + 日志按钮（旁观模式返回=退出旁观） -->
-        <div style="display:flex;justify-content:space-between;gap:6px;">
-          <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="spectating ? onExitSpectate() : (showExitConfirm = true)">← 返回</button>
-          <div style="display:flex;gap:6px;">
-            <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="showLogs = true">
-              📜 ({{ state.logs.length }})
-            </button>
-            <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="toggleMute">
-              {{ muted ? '🔇' : '🔊' }}
-            </button>
-            <MusicButton />
-          </div>
+      <!-- 旁观模式横幅 -->
+      <div class="spectator-bar" v-if="spectating">
+        <span>👁 旁观中 · 正在观看 {{ state.yourSlot?.toUpperCase() }} 视角（不可出牌）</span>
+        <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="onExitSpectate">退出旁观</button>
+      </div>
+
+      <!-- 对手面板 -->
+      <PlayerPanel
+        :player="state.started ? state.opponent : roomOppPlayer"
+        :me="false"
+        :ai-opponent="gameMode === 'single'"
+        :interactive="!spectating"
+        :first-player-pid="state.firstPlayerPid"
+        :active-pid="state.activePid"
+        :defense-pid="state.defensePid"
+        :emergency-pid="state.emergencyHealPid"
+        :combat-scores="state.combatScores"
+        :gui-bei-protector-pid="state.guiBeiProtectorPid"
+        :gui-bei-layers="state.guiBeiLayers"
+        :gui-bei-remaining-turns="state.guiBeiRemainingTurns"
+        @avatar-click="onAvatarClick"
+      />
+
+      <!-- 桌面展示区（出牌区） -->
+      <PlayedCardsZone :cards="playedCards" />
+
+      <!-- 中间：牌库 / 回合阶段 / 弃牌堆 -->
+      <div class="center-strip">
+        <div class="pile">
+          <div class="label">牌库剩余</div>
+          <div class="value">{{ state.started ? state.deckCount : '—' }}</div>
         </div>
-
-        <!-- 旁观模式横幅 -->
-        <div class="spectator-bar" v-if="spectating">
-          <span>👁 旁观中 · 正在观看 {{ state.yourSlot?.toUpperCase() }} 视角（不可出牌）</span>
-          <button class="btn dark" style="font-size:12px;padding:4px 10px;" @click="onExitSpectate">退出旁观</button>
+        <div class="round-tag" :class="state.started ? roundTagClass : 'wait'">{{ state.started ? roundText : roomStatusText }}</div>
+        <div class="pile">
+          <div class="label">弃牌堆</div>
+          <div class="value">{{ state.started ? state.discardCount : '—' }}</div>
         </div>
+      </div>
 
-        <!-- 对手面板 -->
-        <PlayerPanel
-          :player="state.opponent"
-          :me="false"
-          :ai-opponent="gameMode === 'single'"
-          :interactive="!spectating"
-          :first-player-pid="state.firstPlayerPid"
-          :active-pid="state.activePid"
-          :defense-pid="state.defensePid"
-          :emergency-pid="state.emergencyHealPid"
-          :combat-scores="state.combatScores"
-          :gui-bei-protector-pid="state.guiBeiProtectorPid"
-          :gui-bei-layers="state.guiBeiLayers"
-          :gui-bei-remaining-turns="state.guiBeiRemainingTurns"
-          @avatar-click="onAvatarClick"
-        />
-
-        <!-- 桌面展示区（出牌区） -->
-        <PlayedCardsZone :cards="playedCards" />
-
-        <!-- 中间：牌库 / 回合阶段 / 弃牌堆 -->
-        <div class="center-strip">
-          <div class="pile">
-            <div class="label">牌库剩余</div>
-            <div class="value">{{ state.deckCount }}</div>
-          </div>
-          <div class="round-tag" :class="roundTagClass">{{ roundText }}</div>
-          <div class="pile">
-            <div class="label">弃牌堆</div>
-            <div class="value">{{ state.discardCount }}</div>
-          </div>
-        </div>
-
-        <!-- 操作按钮区：补气按钮 / 结束回合 / 确认防御 / 放弃救血（旁观模式隐藏） -->
+        <!-- 操作按钮区: 未开局→准备; 开局→战斗(旁观模式隐藏) -->
         <div class="action-btns" v-if="!spectating">
+          <!-- 未开局: 准备/取消准备/离开房间 -->
+          <template v-if="!state.started">
+            <button v-if="gameMode === 'lan' && !state.myReady" class="btn primary" style="flex:0 1 auto;" @click="onRoomReady">准备</button>
+            <button v-if="gameMode === 'lan' && state.myReady" class="btn dark" style="flex:0 1 auto;" @click="onRoomCancelReady">取消准备</button>
+            <button v-if="gameMode === 'lan'" class="btn dark" style="flex:0 1 auto;" @click="onRoomLeave">离开房间</button>
+            <button v-else class="btn dark" style="flex:0 1 auto;" @click="exitToEntry">返回</button>
+          </template>
+          <!-- 开局: 对局结束过渡 + 战斗按钮 -->
+          <template v-else>
           <!-- 对局结束过渡: 仅系统直接判负时显示结束语(白底) + 2s 倒计时,之后进入过场动画;玩家最后决策后判负则不显示,短延迟直接进动画 -->
           <div v-if="gameOverPending && gameOverShowHint" class="gameover-hint">
             {{ gameOverText }}
@@ -239,31 +196,35 @@
             @click="resetRoom"
           >再来一局（重置房间）</button>
           </template>
+          </template>
         </div>
 
-        <!-- 手牌区（只有自己能看到；旁观模式只读展示） -->
+        <!-- 手牌区（只有自己能看到；旁观模式只读展示；未开局显示等待提示） -->
         <div class="hand-area" :class="{ spectator: spectating }">
-          <GameCard
-            v-for="c in state.you.handCards"
-            :key="c.uid"
-            :card="c"
-            clickable
-            :selected="selectedCardUid === c.uid"
-            :disabled="!cardPlayable(c)"
-            :preview-cost="previewCost(c)"
-            :preview-damage="previewDamage(c)"
-            :damage-boost-badge="boostBadge(c)"
-            :cost-discount-badge="discountBadge(c)"
-            @click="onCardClick"
-          />
-          <div v-if="state.you.handCards.length === 0" class="hand-empty">
-            手牌空空如也... 点击「结束回合」补 3~4 张
-          </div>
+          <template v-if="state.started">
+            <GameCard
+              v-for="c in state.you.handCards"
+              :key="c.uid"
+              :card="c"
+              clickable
+              :selected="selectedCardUid === c.uid"
+              :disabled="!cardPlayable(c)"
+              :preview-cost="previewCost(c)"
+              :preview-damage="previewDamage(c)"
+              :damage-boost-badge="boostBadge(c)"
+              :cost-discount-badge="discountBadge(c)"
+              @click="onCardClick"
+            />
+            <div v-if="state.you.handCards.length === 0" class="hand-empty">
+              手牌空空如也... 点击「结束回合」补 3~4 张
+            </div>
+          </template>
+          <div v-else class="hand-empty">等待发牌...</div>
         </div>
 
         <!-- 自己面板 -->
         <PlayerPanel
-          :player="state.you"
+          :player="state.started ? state.you : roomMyPlayer"
           me
           :interactive="!spectating"
           :first-player-pid="state.firstPlayerPid"
@@ -278,7 +239,6 @@
         />
 
       </template>
-    </template>
 
     <!-- 日志弹窗 -->
     <div class="gameover-mask" v-if="showLogs" @click.self="showLogs = false">
@@ -452,7 +412,7 @@ import {
   spectating, exitSpectate, roomTick,
 } from './store/gameStore';
 import { authed, authUser, logout, restoreAuth, isGuest, updateNickname } from './store/authStore';
-import type { CardView, CardCategory, PlayerId, Slot } from './types/protocol';
+import type { CardView, CardCategory, PlayerId, Slot, PlayerView } from './types/protocol';
 
 // ===== 模式选择 =====
 function onSelectMode(mode: 'single' | 'lan'): void {
@@ -569,6 +529,39 @@ async function onRoomCancelReady(): Promise<void> {
 }
 function onRoomLeave(): void {
   leaveGameToLobby();
+}
+
+/** 未开局时对战界面中间的提示文字 */
+const roomStatusText = computed(() => {
+  if (gameMode.value === 'single') return '正在为 AI 准备...';
+  if (state.myReady && roomOppReady.value) return '双方已准备 · 即将开始';
+  if (state.myReady) return '已准备 · 等待对方准备';
+  return roomOppName.value ? '等待双方准备' : '等待玩家入座';
+});
+
+/** 未开局时玩家面板的占位数据(显示名字/座位,血气为占位) */
+const roomOppPlayer = computed<PlayerView>(() => ({
+  pid: (roomOppSlot.value === 'p2' ? 1 : 0) as PlayerId,
+  name: roomOppName.value || (gameMode.value === 'single' ? 'AI 对手' : '等待玩家入座…'),
+  hp: 0, hpMax: 12, qi: 0,
+  handCount: 0, handCards: [], strategies: [],
+  usedNormalQi: false, usedBigQi: false,
+  pouches: [], yulin: { active: false, remainingTurns: 0 },
+}));
+const roomMyPlayer = computed<PlayerView>(() => ({
+  pid: (state.mySlot === 'p2' ? 1 : 0) as PlayerId,
+  name: roomMyName.value,
+  hp: 0, hpMax: 12, qi: 0,
+  handCount: 0, handCards: [], strategies: [],
+  usedNormalQi: false, usedBigQi: false,
+  pouches: [], yulin: { active: false, remainingTurns: 0 },
+}));
+
+/** 顶部返回: 旁观→退出旁观; 未开局→离开房间; 对局中→退出确认 */
+function onTopBack(): void {
+  if (spectating.value) onExitSpectate();
+  else if (!state.started) onRoomLeave();
+  else showExitConfirm.value = true;
 }
 
 // ===== 退出确认 =====
