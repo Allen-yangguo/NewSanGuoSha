@@ -714,7 +714,7 @@ const authReady = ref(false);
 const displayName = computed(() => {
   const u = authUser.value;
   if (!u) return '';
-  if (u.role === 'guest') return '游客';
+  if (u.role === 'guest') return u.nickname || '游客';
   return u.nickname || u.phone || '用户';
 });
 

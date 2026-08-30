@@ -38,7 +38,7 @@ import {
 } from '../assets/scripts/core/types';
 import { HP_MAX } from '../assets/scripts/core/BattleState';
 import { createAuthRouter } from './auth/routes';
-import { verifyToken, getUserByUid } from './auth/authService';
+import { verifyToken, getUserByUid, guestNickname } from './auth/authService';
 import { getDb, getLeaderboard, getRecord, updateRecord } from './auth/db';
 import { getRecordSummary, settleGame } from './auth/recordService';
 import {
@@ -614,7 +614,7 @@ io.on('connection', (socket: Socket) => {
     }
     if (resolvedName) seat.name = resolvedName;
     else if (payload?.name) seat.name = payload.name;
-    else if (userId && userId.startsWith('g')) seat.name = `游客${userId.slice(1, 5)}`;
+    else if (userId && userId.startsWith('g')) seat.name = guestNickname(userId);
     // 重连场景不重置 ready（对局进行中 ready 无意义；大厅重连保留原 ready）
     if (!table.started) seat.ready = false;
 

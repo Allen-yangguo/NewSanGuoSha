@@ -509,7 +509,7 @@ io.on('connection', (socket) => {
         else if (payload?.name)
             seat.name = payload.name;
         else if (userId && userId.startsWith('g'))
-            seat.name = `游客${userId.slice(1, 5)}`;
+            seat.name = (0, authService_1.guestNickname)(userId);
         // 重连场景不重置 ready（对局进行中 ready 无意义；大厅重连保留原 ready）
         if (!table.started)
             seat.ready = false;

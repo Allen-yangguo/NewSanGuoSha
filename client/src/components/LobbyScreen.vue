@@ -173,6 +173,7 @@ import {
   spectate, rejoinInfo, rejoinGame,
 } from '../store/gameStore';
 import { fetchLeaderboard, type LeaderboardRow } from '../api/leaderboard';
+import { authUser } from '../store/authStore';
 import type { Slot, TableSummary } from '../types/protocol';
 import MusicButton from './MusicButton.vue';
 
@@ -268,7 +269,7 @@ function seatClass(t: TableSummary, slot: Slot): Record<string, boolean> {
 // ===== 动作 =====
 async function onSit(tableId: number, slot: Slot): Promise<void> {
   // 若已在别桌入座，服务端会先清旧座（这里直接 sitDown 即可）
-  await sitDown(tableId, slot);
+  await sitDown(tableId, slot, authUser.value?.nickname);
 }
 async function onStandUp(): Promise<void> {
   await standUp();

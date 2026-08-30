@@ -158,18 +158,23 @@ export function resetPassword(phone: string, code: string, newPassword: string):
   return { ok: true, message: '密码重置成功,请用新密码登录' };
 }
 
+/** 游客昵称(登录即生成,与落座座位名一致) */
+export function guestNickname(uid: string): string {
+  return `游客${uid.slice(1, 5)}`;
+}
+
 /** 游客登录 */
 export function guestLogin(): AuthResult {
   const guestId = 'g' + randomBytes(8).toString('hex');
   touchGuest(guestId);
   const token = signToken({ uid: guestId, role: 'guest' });
-  return { ok: true, message: '游客登录成功', token, user: { uid: guestId, role: 'guest' } };
+  return { ok: true, message: '游客登录成功', token, user: { uid: guestId, role: 'guest', nickname: guestNickname(guestId) } };
 }
 
 /** 根据 uid 获取用户信息(/api/auth/me 用) */
 export function getUserByUid(uid: string): AuthResult {
   if (uid.startsWith('g')) {
-    return { ok: true, message: 'ok', user: { uid, role: 'guest' } };
+    return { ok: true, message: 'ok', user: { uid, role: 'guest', nickname: guestNickname(uid) } };
   }
   if (!uid.startsWith('u')) return { ok: false, message: '无效用户标识' };
   const id = Number(uid.slice(1));

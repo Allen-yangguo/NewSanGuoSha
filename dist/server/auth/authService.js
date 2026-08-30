@@ -8,6 +8,7 @@ exports.register = register;
 exports.registerByUsername = registerByUsername;
 exports.login = login;
 exports.resetPassword = resetPassword;
+exports.guestNickname = guestNickname;
 exports.guestLogin = guestLogin;
 exports.getUserByUid = getUserByUid;
 exports.updateNickname = updateNickname;
@@ -142,17 +143,21 @@ function resetPassword(phone, code, newPassword) {
     (0, db_1.updateUserPassword)(phone, hash);
     return { ok: true, message: '密码重置成功,请用新密码登录' };
 }
+/** 游客昵称(登录即生成,与落座座位名一致) */
+function guestNickname(uid) {
+    return `游客${uid.slice(1, 5)}`;
+}
 /** 游客登录 */
 function guestLogin() {
     const guestId = 'g' + (0, crypto_1.randomBytes)(8).toString('hex');
     (0, db_1.touchGuest)(guestId);
     const token = signToken({ uid: guestId, role: 'guest' });
-    return { ok: true, message: '游客登录成功', token, user: { uid: guestId, role: 'guest' } };
+    return { ok: true, message: '游客登录成功', token, user: { uid: guestId, role: 'guest', nickname: guestNickname(guestId) } };
 }
 /** 根据 uid 获取用户信息(/api/auth/me 用) */
 function getUserByUid(uid) {
     if (uid.startsWith('g')) {
-        return { ok: true, message: 'ok', user: { uid, role: 'guest' } };
+        return { ok: true, message: 'ok', user: { uid, role: 'guest', nickname: guestNickname(uid) } };
     }
     if (!uid.startsWith('u'))
         return { ok: false, message: '无效用户标识' };
