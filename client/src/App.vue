@@ -198,7 +198,7 @@
             v-if="canEndTurn"
             class="btn primary"
             @click="endAction"
-          >结束行动</button>
+          >结束行动{{ endTurnCountdown > 0 ? `（${endTurnCountdown}s）` : '' }}</button>
 
           <button
             v-if="state.gameOver"
@@ -396,7 +396,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import LobbyScreen from './components/LobbyScreen.vue';
 import PlayerPanel from './components/PlayerPanel.vue';
 import GameCard from './components/GameCard.vue';
@@ -414,7 +414,7 @@ import {
   useBonus, confirmDefend, giveUpHeal, endAction, playCard, resetRoom,
   useUltimatePouch, giveUpUltimateSave, leaveGameToLobby,
   ultimateAnimating, pouchAnimating, strategistAnimating, gameOverAnimating, settlement, recordSummary, fetchRecord, submitSettlement, viewingRecord, fetchRecordByPid,
-  spectating, exitSpectate,
+  spectating, exitSpectate, roomTick,
 } from './store/gameStore';
 import { authed, authUser, logout, restoreAuth, isGuest, updateNickname } from './store/authStore';
 import type { CardView, CardCategory, PlayerId } from './types/protocol';
@@ -540,6 +540,36 @@ function onCardClick(c: CardView): void {
     selectedCardUid.value = c.uid;
   }
 }
+
+// ===== 结束行动倒计时（10s 无操作自动结束行动）=====
+const END_TURN_SECONDS = 10;
+const endTurnCountdown = ref(END_TURN_SECONDS);
+let endTurnTimer: ReturnType<typeof setInterval> | null = null;
+function startEndTurnCountdown(): void {
+  if (spectating.value) return; // 旁观模式不自动决策
+  stopEndTurnCountdown();
+  endTurnCountdown.value = END_TURN_SECONDS;
+  endTurnTimer = setInterval(() => {
+    endTurnCountdown.value -= 1;
+    if (endTurnCountdown.value <= 0) {
+      stopEndTurnCountdown();
+      endAction(); // 无操作 → 自动结束行动(等同点击按钮)
+    }
+  }, 1000);
+}
+function stopEndTurnCountdown(): void {
+  if (endTurnTimer) { clearInterval(endTurnTimer); endTurnTimer = null; }
+}
+// 轮到玩家行动 → 启动倒计时; 出牌/补气等任何状态刷新(roomTick)或可结束状态变化 → 重新计时
+watch(canEndTurn, (v) => {
+  if (v) startEndTurnCountdown();
+  else stopEndTurnCountdown();
+});
+watch(roomTick, () => {
+  if (canEndTurn.value) startEndTurnCountdown();
+  else stopEndTurnCountdown();
+});
+onBeforeUnmount(stopEndTurnCountdown);
 
 // ===== 锦囊轮盘动画：光圈位置（等宽候选牌，取第 i 张中心）=====
 const ringLeft = computed(() => {

@@ -37,6 +37,9 @@ export const playedCards = reactive<PlayedCard[]>([]);
 /** 是否处于旁观模式(不参与对局,仅观看某方视角) */
 export const spectating = ref(false);
 
+/** 房间状态刷新计数(每次 roomState 推送 +1,供 UI 倒计时等重新计时) */
+export const roomTick = ref(0);
+
 /** 断线重连后检测到的未完成对局(大厅显示「重新进入」按钮) */
 export const rejoinInfo = ref<{ tableId: number; slot: Slot } | null>(null);
 
@@ -256,6 +259,8 @@ export function pushToast(msg: string): void {
 
 /** 将服务端/本地引擎推送的 RoomStateView 应用到响应式 state */
 function applyRoomState(s: RoomStateView): void {
+  // 状态刷新计数(每次出牌/状态变化 +1,供「结束行动倒计时」重新计时)
+  roomTick.value += 1;
   // 胜负动画延迟期间：暂缓设置 gameOver，让玩家看清最后一手出牌
   if (gameOverPending.value && s.gameOver) {
     const deferred = { ...s, gameOver: false };
