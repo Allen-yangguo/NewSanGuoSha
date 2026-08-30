@@ -186,19 +186,19 @@
             class="btn primary"
             :disabled="!canConfirmDefend"
             @click="confirmDefend"
-          >确认防御（承受伤害）</button>
+          >确认防御（承受伤害）{{ decisionPhase === 'defend' && decisionCountdown > 0 ? `（${decisionCountdown}s）` : '' }}</button>
 
           <button
             v-if="isEmergencyHealing"
             class="btn dark"
             @click="giveUpHeal"
-          >放弃救血（接受败北）</button>
+          >放弃救血（接受败北）{{ decisionPhase === 'emergency-heal' && decisionCountdown > 0 ? `（${decisionCountdown}s）` : '' }}</button>
 
           <button
             v-if="canEndTurn"
             class="btn primary"
             @click="endAction"
-          >结束行动{{ endTurnCountdown > 0 ? `（${endTurnCountdown}s）` : '' }}</button>
+          >结束行动{{ decisionPhase === 'end-turn' && decisionCountdown > 0 ? `（${decisionCountdown}s）` : '' }}</button>
 
           <button
             v-if="state.gameOver"
@@ -375,8 +375,8 @@
           是否使用急锦囊自救？
         </div>
         <div style="display:flex;gap:10px;justify-content:center;margin-top:12px;">
-          <button class="btn dark" @click="onGiveUpUltimateSave">放弃（接受败北）</button>
-          <button class="btn primary" @click="onUseUltimatePouch">使用急锦囊自救</button>
+          <button class="btn dark" @click="onGiveUpUltimateSave">放弃（接受败北）{{ decisionPhase === 'ultimate-save' && decisionCountdown > 0 ? `（${decisionCountdown}s）` : '' }}</button>
+          <button class="btn primary" @click="onUseUltimatePouch">使用急锦囊自救{{ decisionPhase === 'ultimate-save' && decisionCountdown > 0 ? `（${decisionCountdown}s）` : '' }}</button>
         </div>
       </div>
     </div>
@@ -541,35 +541,55 @@ function onCardClick(c: CardView): void {
   }
 }
 
-// ===== 结束行动倒计时（10s 无操作自动结束行动）=====
-const END_TURN_SECONDS = 10;
-const endTurnCountdown = ref(END_TURN_SECONDS);
-let endTurnTimer: ReturnType<typeof setInterval> | null = null;
-function startEndTurnCountdown(): void {
-  if (spectating.value) return; // 旁观模式不自动决策
-  stopEndTurnCountdown();
-  endTurnCountdown.value = END_TURN_SECONDS;
-  endTurnTimer = setInterval(() => {
-    endTurnCountdown.value -= 1;
-    if (endTurnCountdown.value <= 0) {
-      stopEndTurnCountdown();
-      endAction(); // 无操作 → 自动结束行动(等同点击按钮)
+// ===== 决策倒计时（10s 无操作自动执行安全默认动作,确保游戏不会因玩家不操作而卡住）=====
+const DECISION_SECONDS = 10;
+const decisionCountdown = ref(DECISION_SECONDS);
+let decisionTimer: ReturnType<typeof setInterval> | null = null;
+
+/** 当前需要玩家决策的阶段(互斥;旁观模式不参与) */
+const decisionPhase = computed(() => {
+  if (spectating.value) return null;
+  if (isUltimateSaving.value) return 'ultimate-save';
+  if (isEmergencyHealing.value) return 'emergency-heal';
+  if (isAwaitingDefense.value) return 'defend';
+  if (canEndTurn.value) return 'end-turn';
+  return null;
+});
+
+function startDecisionCountdown(): void {
+  stopDecisionCountdown();
+  decisionCountdown.value = DECISION_SECONDS;
+  decisionTimer = setInterval(() => {
+    decisionCountdown.value -= 1;
+    if (decisionCountdown.value <= 0) {
+      stopDecisionCountdown();
+      const phase = decisionPhase.value;
+      if (phase === 'end-turn') endAction();
+      else if (phase === 'defend') confirmDefend(); // 自动承受伤害
+      else if (phase === 'emergency-heal') {
+        // 有补血牌自动打出,否则放弃
+        const heal = state.you?.handCards?.find((c: any) => c.category === 'function_hp');
+        if (heal) playCard(heal.uid);
+        else giveUpHeal();
+      } else if (phase === 'ultimate-save') {
+        useUltimatePouch(); // 自动使用急锦囊自救(50% 绝疗丹)
+      }
     }
   }, 1000);
 }
-function stopEndTurnCountdown(): void {
-  if (endTurnTimer) { clearInterval(endTurnTimer); endTurnTimer = null; }
+function stopDecisionCountdown(): void {
+  if (decisionTimer) { clearInterval(decisionTimer); decisionTimer = null; }
 }
-// 轮到玩家行动 → 启动倒计时; 出牌/补气等任何状态刷新(roomTick)或可结束状态变化 → 重新计时
-watch(canEndTurn, (v) => {
-  if (v) startEndTurnCountdown();
-  else stopEndTurnCountdown();
+// 决策阶段变化 → 启动/停止倒计时; 出牌/补气等任何状态刷新(roomTick) → 重新计时
+watch(decisionPhase, (p) => {
+  if (p) startDecisionCountdown();
+  else stopDecisionCountdown();
 });
 watch(roomTick, () => {
-  if (canEndTurn.value) startEndTurnCountdown();
-  else stopEndTurnCountdown();
+  if (decisionPhase.value) startDecisionCountdown();
+  else stopDecisionCountdown();
 });
-onBeforeUnmount(stopEndTurnCountdown);
+onBeforeUnmount(stopDecisionCountdown);
 
 // ===== 锦囊轮盘动画：光圈位置（等宽候选牌，取第 i 张中心）=====
 const ringLeft = computed(() => {

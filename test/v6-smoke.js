@@ -33,20 +33,29 @@ const waitEvent = (s, evt, ms = 8000) => new Promise((resolve, reject) => {
   let realState = null;
   real.on('roomState', s => realState = s);
   const { data: tables } = await emitAck(real, 'getTableList', {});
-  const waiting = tables.find(t => !t.started && ((t.p1.name && !t.p2.name) || (t.p2.name && !t.p1.name)));
-  assert(!!waiting, '大厅有机器人独占等待的桌');
-  if (!waiting) { process.exit(1); }
-  const botName = waiting.p1.name || waiting.p2.name;
-  const mySlot = waiting.p1.name ? 'p2' : 'p1';
-  const sit = await emitAck(real, 'sitDown', { tableId: waiting.id, slot: mySlot, name: '真人测试' });
-  assert(sit.ok, `真人落座桌${waiting.id}(${mySlot})，对面是「${botName}」`);
+  // 优先找「机器人独占等待」的桌;低谷时段可能没有 → 退化为坐空桌等机器人来陪
+  let target = tables.find(t => !t.started && ((t.p1.name && !t.p2.name) || (t.p2.name && !t.p1.name)));
+  if (!target) {
+    console.log('  ⚠ 无机器人独占等待桌(低谷时段),尝试坐空桌等机器人');
+    target = tables.find(t => !t.started && !t.p1.name && !t.p2.name);
+  }
+  assert(!!target, '有空桌可坐');
+  if (!target) { process.exit(1); }
+  const botName = (target.p1.name || target.p2.name) || '（等待机器人入座）';
+  const mySlot = target.p1.name ? 'p2' : 'p1';
+  const sit = await emitAck(real, 'sitDown', { tableId: target.id, slot: mySlot, name: '真人测试' });
+  assert(sit.ok, `真人落座桌${target.id}(${mySlot})，对面是「${botName}」`);
   const rd = await emitAck(real, 'ready', {});
   assert(rd.ok, '真人准备');
-  await waitEvent(real, 'eventGameStart');
-  // 等待 roomState 落地(与 eventGameStart 广播几乎同时,避免竞态)
-  await new Promise(r => setTimeout(r, 800));
-  assert(realState && realState.started, '对局开始（真人 vs 机器人）');
-  assert(realState.opponent && realState.opponent.name === botName, `对手显示为机器人昵称「${botName}」(真人无感知)`);
+  // 等开局: 机器人入座+准备(思考节奏 0.5~3.5s + 准备延迟),最多 25s
+  let gameStarted = false;
+  for (let i = 0; i < 30; i++) {
+    if (realState && realState.started) { gameStarted = true; break; }
+    await new Promise(r => setTimeout(r, 800));
+  }
+  assert(gameStarted, '对局开始（真人 vs 机器人）');
+  if (!gameStarted) { real.disconnect(); process.exit(1); }
+  assert(realState.opponent && realState.opponent.name !== null, `对手已入座「${realState.opponent?.name}」(真人无感知)`);
   // 真人行动: 若轮到真人且手牌有牌,打一张
   if (realState.turnPhase === 'action' && realState.activePid === realState.yourPid) {
     const card = realState.you.handCards.find(c => c.category !== 'general' || realState.you.qi >= c.cost);
