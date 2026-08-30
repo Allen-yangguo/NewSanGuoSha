@@ -119,6 +119,8 @@ export const gameOverPending = ref(false);
 export const gameOverCountdown = ref(0);
 /** 是否显示「惜乎」结束语过渡(仅系统直接判负时显示;玩家最后决策后判负不显示) */
 export const gameOverShowHint = ref(false);
+/** 本局胜者(eventGameOver 携带,UI 文案/动画分类直接用它,不依赖 roomState 的 winner 字段) */
+export const gameOverWinner = ref<PlayerId | null>(null);
 let gameOverTimer: ReturnType<typeof setTimeout> | null = null;
 let gameOverDelayTimer: ReturnType<typeof setTimeout> | null = null;
 let gameOverCountdownTimer: ReturnType<typeof setInterval> | null = null;
@@ -352,6 +354,7 @@ export function initStore(): void {
   socket.on('eventGameStart', (d) => {
     // 对局开始：切到对战界面（roomState 也会随后推送并覆盖 started=true）
     state.started = true;
+    gameOverWinner.value = null; // 新对局清空上局胜负
     pushToast(`🎮 对局开始 · 先手方：玩家${d.firstPlayerPid + 1}`);
     clearPlayedCards();
   });
@@ -382,6 +385,7 @@ export function initStore(): void {
     else if (d.type === 'burst') playSfx('strategy');
   });
   socket.on('eventGameOver', (d) => {
+    gameOverWinner.value = d.winner;
     // 延迟播放胜负动画: 系统直接判负(instant)时先展示「惜乎」2s;玩家最后决策后判负则短延迟
     triggerGameOverWithDelay(d.winner, !!d.instant);
     if (d.winner === state.yourPid) {
@@ -460,6 +464,7 @@ export function startSingle(): void {
       else if (d.type === 'burst') playSfx('strategy');
     },
     onEventGameOver: (d) => {
+      gameOverWinner.value = d.winner;
       triggerGameOverWithDelay(d.winner, !!d.instant);
       if (d.winner === state.yourPid) { pushToast('🎉 恭喜你获胜！'); playSfx('win'); }
       else if (d.winner === null) { pushToast('🤝 平局'); playSfx('draw'); }

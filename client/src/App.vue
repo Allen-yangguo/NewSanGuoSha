@@ -410,7 +410,7 @@ import {
   useBonus, confirmDefend, giveUpHeal, endAction, playCard, resetRoom,
   useUltimatePouch, giveUpUltimateSave, leaveGameToLobby,
   ready as lanReady, cancelReady as lanCancelReady,
-  ultimateAnimating, pouchAnimating, strategistAnimating, gameOverAnimating, gameOverPending, gameOverCountdown, gameOverShowHint, settlement, recordSummary, fetchRecord, submitSettlement, viewingRecord, fetchRecordByPid,
+  ultimateAnimating, pouchAnimating, strategistAnimating, gameOverAnimating, gameOverPending, gameOverCountdown, gameOverShowHint, gameOverWinner, settlement, recordSummary, fetchRecord, submitSettlement, viewingRecord, fetchRecordByPid,
   spectating, exitSpectate, roomTick,
 } from './store/gameStore';
 import { authed, authUser, logout, restoreAuth, isGuest, updateNickname } from './store/authStore';
@@ -644,8 +644,8 @@ onBeforeUnmount(stopDecisionCountdown);
 
 // ===== 对局结束过渡文案(按钮位置,白底,倒计时后进动画) =====
 const gameOverText = computed(() => {
-  if (state.winner === state.yourPid) return '🎉 大获全胜！';
-  if (state.winner === null) return '不分胜负 · 握手言和';
+  if (gameOverWinner.value === state.yourPid) return '🎉 大获全胜！';
+  if (gameOverWinner.value === null) return '不分胜负 · 握手言和';
   return '惜乎！你已无力回天。';
 });
 
@@ -683,12 +683,12 @@ const roundTagClass = computed(() => {
 
 // ===== 游戏结束文案 =====
 const gameOverTitle = computed(() => {
-  if (state.winner === null) return '平局';
-  return state.winner === state.yourPid ? '胜利' : '败北';
+  if (gameOverWinner.value === null) return '平局';
+  return gameOverWinner.value === state.yourPid ? '胜利' : '败北';
 });
 const gameOverClass = computed(() => {
-  if (state.winner === null) return 'draw';
-  return state.winner === state.yourPid ? 'win' : 'lose';
+  if (gameOverWinner.value === null) return 'draw';
+  return gameOverWinner.value === state.yourPid ? 'win' : 'lose';
 });
 
 // ===== 补气按钮可用性 =====
