@@ -464,7 +464,7 @@ function tryAutoEndAction(io: IOServer, table: Table): void {
   // 无牌可出 → 自动结束行动
   const r = table.engine.endActionPhase();
   if (r.ok) {
-    broadcastEvent(io, table, 'eventTurnEnd', { message: r.message });
+    broadcastEvent(io, table, 'eventTurnEnd', { message: r.message, gameOver: table.engine.state.gameOver });
     if (table.engine.state.gameOver) {
       broadcastEvent(io, table, 'eventGameOver', {
         winner: table.engine.state.result?.winner ?? null,
@@ -1015,6 +1015,7 @@ io.on('connection', (socket: Socket) => {
       broadcastEvent(io, table, 'eventTurnEnd', {
         nextRoundCount: table.engine.state.roundCount,
         nextFirstPid: table.engine.state.firstPlayer,
+        gameOver: table.engine.state.gameOver,
       });
     }
     if (table.engine.state.gameOver) {

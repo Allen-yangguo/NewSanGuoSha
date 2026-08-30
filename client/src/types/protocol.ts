@@ -218,7 +218,7 @@ export interface ServerEvents {
   eventBuffChange: (data: { actorPid: PlayerId; type: string; message: string }) => void;
   eventGameOver: (data: { winner: PlayerId | null; reason: string | null; detail: string | null }) => void;
   eventGameSettlement: (data: GameSettlementView) => void;
-  eventTurnEnd: (data: { nextRoundCount: number; nextFirstPid: PlayerId }) => void;
+  eventTurnEnd: (data: { nextRoundCount?: number; nextFirstPid?: PlayerId; message?: string; gameOver?: boolean }) => void;
   eventUltimateSave: (data: { actorPid: PlayerId; saved: boolean; message: string }) => void;
   /** 对局被终止(真人强退/离线超时): 桌重置为未准备 */
   eventGameAborted: (data: { bySlot: Slot; byName: string }) => void;

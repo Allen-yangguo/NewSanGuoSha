@@ -120,7 +120,11 @@ let gameOverDelayTimer: ReturnType<typeof setTimeout> | null = null;
 function triggerGameOverAnim(): void {
   if (gameOverTimer) clearTimeout(gameOverTimer);
   gameOverAnimating.value = true;
-  gameOverTimer = setTimeout(() => { gameOverAnimating.value = false; }, 5000);
+  gameOverTimer = setTimeout(() => {
+    gameOverAnimating.value = false;
+    // 动画播放完毕: 清空桌面(最后一张牌已展示足够时间)
+    clearPlayedCards();
+  }, 5000);
 }
 /** 延迟触发胜负动画：先等 1.5s 让玩家看清最后出牌，再播动画 */
 function triggerGameOverWithDelay(winner: number | null): void {
@@ -375,10 +379,10 @@ export function initStore(): void {
       pushToast(d.saved ? '🛡 对方绝疗丹保命' : '💀 对方还魂丹无效 · 死亡');
     }
   });
-  socket.on('eventTurnEnd', () => {
+  socket.on('eventTurnEnd', (d) => {
     pushToast('📜 回合结束 · 进入下一轮');
-    // 回合结束时清空桌面展示区
-    clearPlayedCards();
+    // 致胜回合结束时保留桌面最后一张牌(让玩家看清最后一手),等结算动画播完再清
+    if (!d || !d.gameOver) clearPlayedCards();
   });
   socket.on('eventPlayerLeave', (d) => {
     pushToast(`⚠ 玩家 ${d.slot === 'p1' ? '1' : '2'} 已断开连接`);
@@ -432,9 +436,10 @@ export function startSingle(): void {
     onEventGameSettlement: (d) => {
       settlement.value = d;
     },
-    onEventTurnEnd: () => {
+    onEventTurnEnd: (d) => {
       pushToast('📜 回合结束 · 进入下一轮');
-      clearPlayedCards();
+      // 致胜回合结束时保留桌面最后一张牌(等结算动画播完再清)
+      if (!d || !d.gameOver) clearPlayedCards();
     },
     onEventGameStart: (d) => {
       pushToast(`🎮 对局开始 · 先手方：${d.firstPlayerPid === state.yourPid ? '你' : 'AI'}`);

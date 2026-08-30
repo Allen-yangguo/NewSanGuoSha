@@ -48,7 +48,7 @@ export interface LocalEventCallbacks {
   onEventBuffChange: (d: { actorPid: PlayerId; type: string; message: string }) => void;
   onEventGameOver: (d: { winner: PlayerId | null; reason: string | null; detail: string | null }) => void;
   onEventGameSettlement: (d: any) => void;
-  onEventTurnEnd: (d: { nextRoundCount: number; nextFirstPid: PlayerId }) => void;
+  onEventTurnEnd: (d: { nextRoundCount?: number; nextFirstPid?: PlayerId; message?: string; gameOver?: boolean }) => void;
   onEventGameStart: (d: { firstPlayerPid: PlayerId }) => void;
   onEventRoomReset: () => void;
 }
@@ -806,6 +806,7 @@ export class LocalEngine {
     this.cb.onEventTurnEnd({
       nextRoundCount: this.engine.state.roundCount,
       nextFirstPid: this.engine.state.firstPlayer,
+      gameOver: this.engine.state.gameOver,
     });
   }
 
