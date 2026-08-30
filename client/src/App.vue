@@ -78,6 +78,17 @@
     <!-- 局域网大厅：未入座且未旁观 → 选桌入座 -->
     <LobbyScreen v-else-if="gameMode === 'lan' && !spectating && state.myTableId === null" @exit="exitToEntry" />
 
+    <!-- 旁观中且对局已结束(桌回准备区,被旁观玩家仍在对局室) → 等待提示 -->
+    <div v-else-if="spectating && !state.started" class="lobby">
+      <div class="lobby-box">
+        <div class="lobby-title">👁 旁观中 · 对局已结束</div>
+        <div class="lobby-sub">被旁观玩家正在对局室准备下一局...</div>
+        <div style="display:flex;gap:8px;justify-content:center;margin-top:14px;">
+          <button class="btn dark" @click="onExitSpectate">退出旁观</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 已入座(联机)/单机 → 对战界面(未开局显示准备状态,开局后战斗) -->
     <template v-else>
       <!-- 顶部：返回 + 静音 + 日志按钮（未开局返回=离开房间;旁观返回=退出旁观） -->

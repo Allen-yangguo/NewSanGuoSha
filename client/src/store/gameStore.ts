@@ -36,6 +36,9 @@ export const playedCards = reactive<PlayedCard[]>([]);
 
 /** 是否处于旁观模式(不参与对局,仅观看某方视角) */
 export const spectating = ref(false);
+/** 旁观的桌号与视角槽位(跟随被旁观玩家: 其退出则旁观者跟随退出) */
+export const spectateTable = ref<number | null>(null);
+export const spectateSlot = ref<0 | 1 | null>(null);
 
 /** 房间状态刷新计数(每次 roomState 推送 +1,供 UI 倒计时等重新计时) */
 export const roomTick = ref(0);
@@ -350,6 +353,14 @@ export function initStore(): void {
     if (idx >= 0) state.tables.splice(idx, 1, t);
     else state.tables.push(t);
     syncMyLobbyState();
+    // 旁观者跟随被旁观玩家: 若被旁观视角的座位已空(玩家退出) → 跟随退出回大厅
+    if (spectating.value && spectateTable.value === t.id && spectateSlot.value !== null) {
+      const seat = spectateSlot.value === 0 ? t.p1 : t.p2;
+      if (seat && seat.name === null) {
+        pushToast('⚠ 所旁观的玩家已退出 · 返回大厅');
+        exitSpectate();
+      }
+    }
   });
   socket.on('eventGameStart', (d) => {
     // 对局开始：切到对战界面（roomState 也会随后推送并覆盖 started=true）
@@ -424,6 +435,17 @@ export function initStore(): void {
     }
   });
   socket.on('eventGameAborted', (d) => {
+    // 旁观者: 若被旁观视角的玩家退出 → 跟随退出; 若只是对手退出 → 停留(被旁观者仍在对局室)
+    if (spectating.value && spectateSlot.value !== null) {
+      const mySlot: 'p1' | 'p2' = spectateSlot.value === 0 ? 'p1' : 'p2';
+      if (d.bySlot === mySlot) {
+        pushToast('⚠ 所旁观的玩家已退出 · 返回大厅');
+        exitSpectate();
+        return;
+      }
+      pushToast(`⚠ 对方玩家已退出 · 继续旁观`);
+      return;
+    }
     pushToast(`⚠ 对局已终止（${d.byName} 离开）· 可继续准备`);
   });
   socket.on('eventRematchRequest', (d) => {
@@ -756,6 +778,8 @@ export async function spectate(tableId: number, pid: 0 | 1): Promise<{ ok: boole
     return { ok, msg: data?.error || '' };
   }
   spectating.value = true;
+  spectateTable.value = tableId;
+  spectateSlot.value = pid;
   clearPlayedCards();
   return { ok, msg: '' };
 }
@@ -763,6 +787,8 @@ export async function spectate(tableId: number, pid: 0 | 1): Promise<{ ok: boole
 /** 退出旁观,回到大厅 */
 export async function exitSpectate(): Promise<void> {
   spectating.value = false;
+  spectateTable.value = null;
+  spectateSlot.value = null;
   settlement.value = null;
   if (gameMode.value === 'single') return;
   try { await emit('spectateExit', {}); } catch { /* ignore */ }
