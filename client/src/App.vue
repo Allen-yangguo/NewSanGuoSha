@@ -75,8 +75,8 @@
       </template>
     </template>
 
-    <!-- 局域网大厅：未入座 → 选桌入座 -->
-    <LobbyScreen v-else-if="gameMode === 'lan' && state.myTableId === null" @exit="exitToEntry" />
+    <!-- 局域网大厅：未入座且未旁观 → 选桌入座 -->
+    <LobbyScreen v-else-if="gameMode === 'lan' && !spectating && state.myTableId === null" @exit="exitToEntry" />
 
     <!-- 已入座(联机)/单机 → 对战界面(未开局显示准备状态,开局后战斗) -->
     <template v-else>
@@ -309,8 +309,8 @@
       <div v-else class="go-transition-text">{{ gameOverTitle }}</div>
     </div>
 
-    <!-- 游戏结束遮罩（过场动画结束后显示；旁观模式不弹结算） -->
-    <div class="gameover-mask" v-if="state.gameOver && !gameOverAnimating && !spectating">
+    <!-- 游戏结束遮罩（过场动画结束后显示；联机不弹结算窗口,动画后自动回准备区重新准备;旁观模式不弹） -->
+    <div class="gameover-mask" v-if="state.gameOver && !gameOverAnimating && !spectating && gameMode === 'single'">
       <div class="gameover-card">
         <div class="gameover-title" :class="gameOverClass">{{ gameOverTitle }}</div>
         <div class="gameover-desc">{{ state.gameOverDetail }}</div>

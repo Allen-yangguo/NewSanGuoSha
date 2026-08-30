@@ -1097,6 +1097,28 @@ io.on('connection', (socket: Socket) => {
     broadcastTableUpdate(io, table);
   });
 
+  // ---------- 对局结束动画播完 → 桌转未准备(回准备区,双方重新点「准备」开新局) ----------
+  socket.on('prepareNextRound', (_payload: any, ack) => {
+    const cb: (ok: boolean, data: any) => void = typeof ack === 'function' ? ack : () => {};
+    const table = getTable(socket);
+    if (!table) return cb(true, { ok: true });
+    const slot = getSlotInTable(socket.id, table);
+    if (!slot) return cb(true, { ok: true });
+    // 仅对局已结束时生效(幂等: 双方动画结束都会触发)
+    if (!table.started || !table.engine.state.gameOver) return cb(true, { ok: true });
+    table.engine = new GameEngine();
+    table.started = false;
+    table.rematch = { p1: false, p2: false };
+    table.players.p1.ready = false;
+    table.players.p2.ready = false;
+    console.log(`[Game] 桌${table.id} 对局结束 · 桌重置为未准备(可重新准备)`);
+    broadcastEvent(io, table, 'eventRoomReset', {});
+    broadcastRoomState(io, table);
+    broadcastTableUpdate(io, table);
+    broadcastTableList(io);
+    cb(true, { ok: true });
+  });
+
   // ---------- 对局旁观 ----------
   // payload: { tableId, pid(0/1 选择视角) }
   socket.on('spectate', (payload: { tableId?: number; pid?: number }, ack) => {

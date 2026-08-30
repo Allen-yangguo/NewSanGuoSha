@@ -532,42 +532,6 @@ function botLeaveToLobby(bot) {
     bot.rematchPending = false;
     lobbyLoop(bot);
 }
-/** 机器人请求「再来一局」(防重复;失败按原因处理: 时机未到→延迟重试, 对方离开→离桌) */
-function botRequestRematch(bot) {
-    if (!bot.socket || bot.socket.disconnected)
-        return;
-    if (bot.rematchPending)
-        return; // 已有请求在途
-    bot.rematchPending = true;
-    emitAck(bot.socket, 'resetRoom', {}).then((r) => {
-        if (!bot.socket || bot.socket.disconnected)
-            return;
-        if (r.ok && r.data?.waiting) {
-            // 等待对方确认 → 30 秒未确认 → 离桌回大厅
-            bot.rematchTimer = setTimeout(() => {
-                bot.rematchTimer = null;
-                bot.rematchPending = false;
-                emitAck(bot.socket, 'standUp', {}).then(() => botLeaveToLobby(bot));
-            }, 30000).unref?.();
-        }
-        else if (r.ok) {
-            bot.gameOverHandled = false; // 双方确认 → 已重开
-            bot.rematchPending = false;
-        }
-        else {
-            const err = r.data?.error || '';
-            bot.rematchPending = false;
-            if (/对局未结束/.test(err)) {
-                // 时机未到(对方刚重开/状态未就绪) → 延迟重试,不立即退出
-                bot.rematchTimer = setTimeout(() => botRequestRematch(bot), 3000).unref?.();
-            }
-            else {
-                // 对方已离开等 → 离桌回大厅
-                emitAck(bot.socket, 'standUp', {}).then(() => botLeaveToLobby(bot));
-            }
-        }
-    });
-}
 /** 连接机器人 socket 并挂载 AI 监听 */
 function connectBot(bot, serverUrl) {
     const token = (0, authService_1.createBotToken)(bot.uid);
@@ -670,21 +634,36 @@ function connectBot(bot, serverUrl) {
             });
             return;
         }
-        // 未达目标 → 请求「再来一局」(防重复;失败按原因重试或离桌)
-        bot.rematchPending = false;
+        // 未达目标: 对局结束,模拟动画时长后请求桌转未准备(prepareNextRound),
+        // 收到 eventRoomReset 后重新「准备」开新局(双方都点准备才开局)
+        if (bot.rematchTimer) {
+            clearTimeout(bot.rematchTimer);
+            bot.rematchTimer = null;
+        }
         bot.rematchTimer = setTimeout(() => {
             bot.rematchTimer = null;
-            botRequestRematch(bot);
-        }, 6000);
+            emitAck(socket, 'prepareNextRound', {});
+        }, 8000);
     });
-    // 真人请求「再来一局」→ 机器人确认(双方都确认后服务端重开)
-    socket.on('eventRematchRequest', () => {
+    // 对局结束 → 桌转未准备(服务端 prepareNextRound/对局终止): 重新准备等对方
+    socket.on('eventRoomReset', () => {
         if (bot.state === 'playing' && bot.lastGameOver) {
+            bot.state = 'sitting';
+            bot.lastGameOver = false;
+            bot.gameOverHandled = false;
             if (bot.rematchTimer) {
                 clearTimeout(bot.rematchTimer);
                 bot.rematchTimer = null;
             }
-            botRequestRematch(bot);
+            // 重新准备(对方入座/回准备区后双方准备即开局);90 秒等不到对方 → 换桌
+            emitAck(socket, 'ready', {}).then(() => {
+                bot.rematchTimer = setTimeout(() => {
+                    bot.rematchTimer = null;
+                    emitAck(socket, 'standUp', {}).then(() => {
+                        botLeaveToLobby(bot);
+                    });
+                }, 90000).unref?.();
+            });
         }
     });
     // 对局终止(真人强退/离线超时): 模拟玩家留在桌,重置为未准备,重新准备等真人

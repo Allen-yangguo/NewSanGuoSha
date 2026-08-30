@@ -129,6 +129,10 @@ function triggerGameOverAnim(): void {
     gameOverAnimating.value = false;
     // 动画播放完毕: 清空桌面(最后一张牌已展示足够时间)
     clearPlayedCards();
+    // 联机: 请求把桌重置为未准备,回到准备区(双方重新点「准备」开新局)
+    if (gameMode.value === 'lan') {
+      try { emit('prepareNextRound', {}); } catch { /* ignore */ }
+    }
   }, 5000);
 }
 /** 延迟触发胜负动画：系统直接判负(instant)时在按钮位置展示「惜乎」白底倒计时 2s 再进动画;玩家最后决策后判负则短延迟直接进动画 */
@@ -390,6 +394,11 @@ export function initStore(): void {
   });
   socket.on('eventGameSettlement', (d) => {
     settlement.value = d;
+    // 联机: 不弹结算窗口,轻提示本局得分(动画后自动回准备区重新准备)
+    if (gameMode.value === 'lan') {
+      const my = d.scores[state.yourPid ?? 0] ?? 0;
+      pushToast(`💎 本局得分 ${my >= 0 ? '+' : ''}${my}`);
+    }
   });
   socket.on('eventUltimateSave', (d) => {
     if (d.actorPid === state.yourPid) {

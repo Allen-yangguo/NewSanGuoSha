@@ -187,6 +187,8 @@ export interface ClientEvents {
   giveUpUltimateSave: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   /** 对局中主动离开(强退: 扣 50 分;模拟玩家留桌,桌重置为未准备) */
   leaveGame: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
+  /** 对局结束动画播完 → 请求把桌重置为未准备(回准备区重新点准备) */
+  prepareNextRound: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   readyNextTurn: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   resetRoom: (payload?: {}, ack?: (ok: boolean, data: any) => void) => void;
   getRecord: (payload?: {}, ack?: (ok: boolean, data: RecordView | null) => void) => void;
